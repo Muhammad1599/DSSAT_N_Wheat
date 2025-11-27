@@ -1,0 +1,660 @@
+================================================================================
+CSMTOOLS DATA CONVERSION PIPELINE DOCUMENTATION
+Raw Data to ICASA to DSSAT Format Conversion
+Duernast Long-Term Fertilization Experiment
+================================================================================
+
+Date: November 2025
+Location: DüRNast, Freising, Bayern, Germany
+Tool: csmTools R Package
+Purpose: Convert raw experimental data to ICASA standard format and then to DSSAT model input format
+
+================================================================================
+1. OVERVIEW
+================================================================================
+
+The csmTools pipeline is an ETL (Extract, Transform, Load) system that converts
+raw crop experiment datasets into standardized formats for crop simulation models.
+
+Pipeline Flow:
+Raw Data (BonaRes format) → ICASA Standard Format → DSSAT Model Input Files
+
+Purpose:
+- Standardize experimental data using ICASA dictionary
+- Enable data interoperability between different crop models
+- Automate conversion to DSSAT input file format
+- Calculate initial soil conditions for simulations
+
+================================================================================
+2. DATA SOURCE
+================================================================================
+
+2.1 Original Data Location
+---------------------------
+
+Source: BonaRes Repository
+- Dataset: Duernast Long-Term Fertilization Experiment
+- Format: German CSV files with relational structure
+- Metadata: XML file with experiment description
+- Variable Key: Excel file documenting all variables
+
+2.2 Raw Data Structure
+-----------------------
+
+Location: data/0_raw/
+
+Files (German naming convention):
+- lte_duernast.V1_0_AUSSAAT.csv (Planting/Sowing data)
+- lte_duernast.V1_0_DUENGUNG.csv (Fertilization data)
+- lte_duernast.V1_0_ERNTE.csv (Harvest data)
+- lte_duernast.V1_0_ERTRAG.csv (Yield data)
+- lte_duernast.V1_0_BODENBEARBEITUNG.csv (Tillage data)
+- lte_duernast.V1_0_PFLANZENSCHUTZ.csv (Plant protection data)
+- lte_duernast.V1_0_KLIMADATEN.csv (Weather data)
+- lte_duernast.V1_0_PARZELLE.csv (Plot data)
+- lte_duernast.V1_0_PRUEFGLIED.csv (Treatment data)
+- lte_duernast.V1_0_SORTE.csv (Cultivar data)
+- Additional files for experimental design and management
+
+Metadata:
+- 7e526e38-4bf1-492b-b903-d8dbcfd36b6d.xml (BonaRes metadata schema)
+- lte_duernast_variableKey.xlsx (Variable documentation)
+
+2.3 Data Characteristics
+------------------------
+
+- Relational database structure (linked by ID variables)
+- German variable names and units
+- Multiple years of data (2015-2022+)
+- Multiple crops (Wheat, Maize, Barley, Potatoes)
+- 15 nitrogen treatment levels
+- Multiple replicates per treatment
+
+================================================================================
+3. CONVERSION PROCESS
+================================================================================
+
+3.1 Step 1: Raw Data to ICASA Format
+-------------------------------------
+
+Function: convert_dataset()
+Input Model: "bonares-lte_de"
+Output Model: "icasa"
+
+Process:
+1. Read raw CSV files from data/0_raw/
+2. Read metadata XML file
+3. Apply YAML mapping rules to transform:
+   - Column headers (German → ICASA standard names)
+   - Variable codes (German categories → ICASA codes)
+   - Units (German units → ICASA standard units)
+   - Data structure (relational tables → ICASA format)
+4. Reshape data according to ICASA dictionary structure
+5. Output standardized ICASA format CSV files
+
+Key Transformations:
+- Variable name mapping using lookup tables
+- Unit conversions (e.g., kg/ha, dates, temperatures)
+- Code translations (e.g., crop codes, treatment codes)
+- Data aggregation and merging across tables
+- Date format standardization
+
+3.2 Step 2: ICASA Format to DSSAT Format
+-----------------------------------------
+
+Function: convert_dataset()
+Input Model: "icasa"
+Output Model: "dssat"
+
+Process:
+1. Read ICASA format CSV files from data/1_icasa/
+2. Apply ICASA → DSSAT mapping rules
+3. Transform data structure to DSSAT file format:
+   - EXPERIMENT section (.WHX file)
+   - WEATHER section (.WTH file)
+   - SOIL section (.SOL file)
+   - OBSERVED DATA sections (.WHA, .WHT files)
+4. Format data according to DSSAT file specifications
+5. Write DSSAT input files
+
+Key Transformations:
+- ICASA variable names → DSSAT column codes
+- ICASA date format → DSSAT YYYYDDD format
+- ICASA units → DSSAT units
+- ICASA table structure → DSSAT file sections
+- Treatment organization for DSSAT simulation structure
+
+3.3 Step 3: Initial Conditions Calculation
+-------------------------------------------
+
+Function: calculate_initial_layers()
+Purpose: Calculate initial soil water and nitrogen conditions
+
+Input:
+- Soil profile data (SLLL, SDUL, SBDM, SLB)
+- Target: 90% available water
+- Target: 100 kg/ha total nitrogen
+
+Process:
+1. Calculate SH2O (volumetric water content) for each layer:
+   SH2O = SLLL + (90/100) × (SDUL - SLLL)
+2. Calculate uniform nitrogen distribution:
+   - Total N: 100 kg/ha
+   - Split: 90% NO₃⁻, 10% NH₄⁺
+   - Uniform concentration across all layers
+3. Convert to DSSAT format (list columns for INITIAL_CONDITIONS section)
+
+Output:
+- Layer-by-layer data frame (ICBL, SH2O, SNH4, SNO3)
+- DSSAT format with list columns
+
+================================================================================
+4. ICASA FORMAT STRUCTURE
+================================================================================
+
+4.1 ICASA Standard
+-------------------
+
+ICASA (International Consortium for Agricultural Systems Applications) Dictionary:
+- Standardized variable names and units
+- Common data structure for crop experiments
+- Enables interoperability between models
+- Reference: https://github.com/DSSAT/ICASA-Dictionary
+
+4.2 ICASA Output Files
+----------------------
+
+Location: data/1_icasa/
+
+Core Tables:
+- GENERAL.csv - Experiment metadata
+- FIELDS.csv - Field location and characteristics
+- TREATMENTS.csv - Treatment definitions
+- PLANTINGS.csv - Planting information
+- FERTILIZERS.csv - Fertilization events
+- TILLAGE.csv - Tillage operations
+- HARVESTS.csv - Harvest information
+- WEATHER_DAILY.csv - Daily weather data
+- WEATHER_METADATA.csv - Weather station information
+- SOIL_PROFILE.csv - Soil profile metadata
+- SOIL_PROFILE_LAYERS.csv - Soil layer properties
+- INITIAL_CONDITIONS.csv - Initial soil conditions
+- GENOTYPES.csv - Cultivar information
+- CHEMICALS.csv - Chemical application data
+- SUMMARY.csv - Experiment summary statistics
+- TIME_SERIES.csv - Time series observations
+
+4.3 ICASA Variable Naming
+--------------------------
+
+Format: Long descriptive names (e.g., "planting_date", "fertilizer_amount")
+Can be converted to short codes using format_icasa_headers()
+
+Example Mappings:
+- "planting_date" → "PDATE" (short)
+- "fertilizer_amount" → "FAMN" (short)
+- "weather_date" → "DATE" (short)
+
+================================================================================
+5. DSSAT FORMAT STRUCTURE
+================================================================================
+
+5.1 DSSAT File Types
+--------------------
+
+Location: data/2_dssat/
+
+Experiment Definition File (.WHX):
+- TUDU1501.WHX (2015 Spring Wheat)
+- TUDU1701.WHX (2017 Winter Wheat)
+- Contains: Treatments, Cultivars, Fields, Planting, Fertilizers, Tillage,
+  Initial Conditions, Simulation Controls
+
+Weather File (.WTH):
+- TUDU1501.WTH (2015 weather)
+- TUDU1601.WTH (2016 weather, for multi-year simulations)
+- TUDU1701.WTH (2017 weather)
+- Contains: Daily weather data (SRAD, TMAX, TMIN, RAIN)
+
+Soil File (.SOL):
+- TU.SOL (or DE.SOL after normalization)
+- Contains: Soil profile properties (layers, water retention, bulk density)
+
+Observed Data Files:
+- .WHA (Above-ground observations)
+- .WHT (Total observations including roots)
+- Contains: Measured yields, biomass, nitrogen content
+
+5.2 DSSAT File Sections
+------------------------
+
+.WHX File Structure:
+*GENERAL
+*TREATMENTS
+*CULTIVARS
+*FIELDS
+*INITIAL CONDITIONS
+*PLANTING DETAILS
+*FERTILIZERS (INORGANIC)
+*TILLAGE AND ROTATIONS
+*SIMULATION CONTROLS
+
+Each section has specific column requirements and formatting rules.
+
+================================================================================
+6. KEY FUNCTIONS AND WORKFLOW
+================================================================================
+
+6.1 Main Conversion Functions
+-----------------------------
+
+convert_dataset(dataset, input_model, output_model)
+- Primary conversion function
+- Handles mapping, transformation, and formatting
+- Supports: bonares-lte_de → icasa → dssat
+
+read_exp_data(dir, extension)
+- Reads all CSV files from directory
+- Returns named list of data frames
+
+read_metadata(url, model)
+- Reads BonaRes metadata XML
+- Extracts experiment description and variable key
+
+format_icasa_headers(dataset, header_type)
+- Converts between long and short ICASA variable names
+- header_type: "short" or "long"
+
+6.2 DSSAT-Specific Functions
+-----------------------------
+
+calculate_initial_layers(soil_profile, percent_available_water, total_n_kgha)
+- Calculates initial soil water and nitrogen
+- Returns layer-by-layer data frame
+
+compile_model_dataset(dataset, framework, write, path, args)
+- Assembles complete DSSAT input dataset
+- Writes all required files
+- Sets simulation control parameters
+
+build_dssat_dataset(dataset)
+- Formats dataset for DSSAT file structure
+- Handles different DSSAT file types
+
+6.3 Mapping and Transformation
+-------------------------------
+
+map_data(df, input_model, output_model, map)
+- Maps column headers between formats
+- Converts units and codes
+- Applies transformations
+
+process_actions(actions, full_input_df, full_dataset)
+- Executes YAML-defined transformation rules
+- Actions: lookup_and_add, map_values, rowwise_transform, etc.
+
+apply_mappings(input_data, input_model, output_model, config)
+- Applies full mapping rule set
+- Two-phase: transformation then formatting
+
+================================================================================
+7. MAPPING CONFIGURATION
+================================================================================
+
+7.1 YAML Mapping Files
+-----------------------
+
+Location: inst/extdata/
+
+datamodels.yaml:
+- Defines data model structures
+- Specifies master keys and relationships
+- Points to mapping rule files
+
+Mapping Rule Files:
+- bonares-lte_de_to_icasa.yaml
+- icasa_to_dssat.yaml
+- Contains transformation rules for each variable
+
+7.2 Mapping Rule Structure
+---------------------------
+
+Each rule contains:
+- mapping_uid: Unique identifier
+- source: Input table and columns
+- target: Output table and columns
+- actions: Sequence of transformations
+  - lookup_and_add: Join data from other tables
+  - map_values: Translate categorical codes
+  - rowwise_transform: Calculate new variables
+  - rename_column: Change column names
+  - filter_rows: Subset data
+  - apply_formats: Format dates and numbers
+
+7.3 Variable Mapping Process
+----------------------------
+
+Step 1: Header Mapping
+- German column names → ICASA long names → ICASA short codes → DSSAT codes
+
+Step 2: Code Mapping
+- German categories → ICASA standard codes → DSSAT codes
+- Example: "Harnstoff" → "Urea" → "AP001"
+
+Step 3: Unit Conversion
+- German units → ICASA standard units → DSSAT units
+- Example: "kg N/ha" → "kg/ha" (maintained)
+
+Step 4: Data Transformation
+- Calculate derived variables
+- Aggregate across replicates
+- Reshape table structure
+
+================================================================================
+8. INITIAL CONDITIONS CALCULATION
+================================================================================
+
+8.1 Purpose
+-----------
+
+Calculate initial soil water and nitrogen conditions for DSSAT simulations
+based on target specifications.
+
+8.2 Input Parameters
+--------------------
+
+Soil Profile:
+- SLB: Depth at bottom of layer (cm)
+- SLLL: Lower limit (wilting point, cm³/cm³)
+- SDUL: Upper limit (field capacity, cm³/cm³)
+- SBDM: Bulk density (g/cm³)
+
+Target Conditions:
+- percent_available_water: 90%
+- total_n_kgha: 100 kg/ha
+
+8.3 Calculation Method
+----------------------
+
+Water Content (SH2O):
+Formula: SH2O = SLLL + (percent_available_water/100) × (SDUL - SLLL)
+- Accounts for both wilting point and field capacity
+- Calculates 90% of available water capacity range
+
+Nitrogen Distribution:
+- Total N: 100 kg/ha across 0-200 cm profile
+- Split: 90% NO₃⁻, 10% NH₄⁺
+- Uniform distribution across all layers
+- Calculation based on depth-weighted average bulk density
+
+8.4 Output Format
+-----------------
+
+Layer-by-Layer Format:
+- ICBL: Depth at bottom of layer (cm)
+- SH2O: Volumetric water content (cm³/cm³)
+- SNH4: Ammonium concentration (μgN/g soil)
+- SNO3: Nitrate concentration (μgN/g soil)
+
+DSSAT Format:
+- One row per condition (C = 1)
+- List columns: ICBL, SH2O, SNH4, SNO3 (vectors for all layers)
+- Combined with other INITIAL_CONDITIONS metadata
+
+8.5 Integration
+---------------
+
+The calculated initial conditions are integrated into the DSSAT .WHX file
+under the *INITIAL CONDITIONS section, providing standardized starting
+conditions for all simulations.
+
+================================================================================
+9. WORKFLOW EXAMPLE
+================================================================================
+
+9.1 Complete Pipeline Script
+-----------------------------
+
+# Load libraries
+library(csmTools)
+library(dplyr)
+
+# Step 1: Read raw data
+duernast_raw <- read_exp_data(dir = "./data/0_raw", extension = "csv")
+
+# Step 2: Read metadata
+meta <- read_metadata(metadata_url, "bonares-lte_de")
+duernast_raw <- c(duernast_raw, list(METADATA = meta$metadata))
+
+# Step 3: Convert to ICASA format
+duernast_icasa <- convert_dataset(
+  dataset = duernast_raw,
+  input_model = "bonares-lte_de",
+  output_model = "icasa",
+  unmatched_code = "default_value"
+)
+
+# Step 4: Get additional data (soil profile from SoilGrids)
+soil_profile <- get_soilGrids_profile(lat, lon)
+duernast_icasa <- c(duernast_icasa, soil_profile)
+
+# Step 5: Calculate initial conditions
+soil_profile_df <- duernast_icasa$SOIL_PROFILE_LAYERS
+initial_conditions <- calculate_initial_layers(
+  soil_profile = soil_profile_df,
+  percent_available_water = 90,
+  total_n_kgha = 100
+)
+
+# Step 6: Convert to DSSAT format
+duernast_dssat <- convert_dataset(
+  dataset = duernast_icasa,
+  input_model = "icasa",
+  output_model = "dssat",
+  unmatched_code = "default_value"
+)
+
+# Step 7: Compile and write DSSAT files
+duernast_dssat_fmt <- compile_model_dataset(
+  dataset = duernast_dssat,
+  framework = "dssat",
+  sol_append = FALSE,
+  write = TRUE,
+  path = "./data/2_dssat",
+  args = list(RSEED = 1234, SMODEL = "WHAPS048")
+)
+
+9.2 Key Steps Summary
+---------------------
+
+1. Data Reading: Raw CSV files + metadata XML
+2. First Conversion: bonares-lte_de → icasa
+3. Data Enhancement: Add soil profile data
+4. Initial Conditions: Calculate soil water and nitrogen
+5. Second Conversion: icasa → dssat
+6. File Compilation: Write DSSAT input files
+
+================================================================================
+10. DATA QUALITY AND VALIDATION
+================================================================================
+
+10.1 Quality Checks
+-------------------
+
+- Variable mapping validation
+- Unit conversion verification
+- Date format consistency
+- Missing data handling
+- Treatment structure validation
+
+10.2 Common Issues
+------------------
+
+- Missing metadata for some variables
+- Inconsistent date formats in raw data
+- Multiple units for same variable
+- Missing relationships between tables
+- Coordinate system transformations
+
+10.3 Solutions
+--------------
+
+- Default value assignment for unmapped codes
+- Date parsing with multiple format attempts
+- Unit conversion using lookup tables
+- Master key propagation across tables
+- Coordinate transformation (Gauss-Krüger → WGS84)
+
+================================================================================
+11. OUTPUT FILES
+================================================================================
+
+11.1 ICASA Format Output
+------------------------
+
+Location: data/1_icasa/
+Format: CSV files with ICASA standard variable names
+Files: 21 CSV files covering all experiment components
+
+11.2 DSSAT Format Output
+------------------------
+
+Location: data/2_dssat/
+Format: DSSAT-specific file formats
+
+Files Generated:
+- TUDU1501.WHX (2015 experiment definition)
+- TUDU1501.WTH (2015 weather)
+- TUDU1501.WHA (2015 observed above-ground)
+- TUDU1501.WHT (2015 observed total)
+- TUDU1701.WHX (2017 experiment definition)
+- TUDU1701.WTH (2017 weather)
+- TUDU1601.WTH (2016 weather, for multi-year)
+- TU.SOL (Soil profile)
+- Additional files for other years/crops
+
+11.3 File Naming Convention
+---------------------------
+
+DSSAT Files:
+- Format: TUDU{YY}{NN}.{EXT}
+- TUDU: Site code (TUM Duernast)
+- YY: Year (15 = 2015, 17 = 2017)
+- NN: Sequence number (01)
+- EXT: File type (WHX, WTH, WHA, WHT, SOL)
+
+================================================================================
+12. INTEGRATION WITH SIMULATION PIPELINE
+================================================================================
+
+12.1 Role in Overall Workflow
+------------------------------
+
+The csmTools pipeline provides the input data preparation step for the
+DSSAT simulation workflow:
+
+1. Data Conversion (csmTools): Raw data → DSSAT input files
+2. Simulation (DSSAT): Run crop model with input files
+3. Visualization (Python): Generate analysis figures
+
+12.2 Connection Points
+-----------------------
+
+Initial Conditions:
+- Calculated by csmTools using calculate_initial_layers()
+- Used in DSSAT .WHX file *INITIAL CONDITIONS section
+- Provides standardized starting conditions
+
+File Structure:
+- csmTools generates DSSAT input files
+- Generalized pipeline reads these files for simulation
+- Output files used for visualization
+
+12.3 Data Consistency
+---------------------
+
+- Same soil profile used across all conversions
+- Consistent treatment numbering
+- Standardized date formats
+- Uniform initial conditions
+
+================================================================================
+13. TECHNICAL DETAILS
+================================================================================
+
+13.1 R Package Dependencies
+----------------------------
+
+Core Packages:
+- dplyr: Data manipulation
+- tidyr: Data reshaping
+- yaml: Configuration file parsing
+- jsonlite: JSON file handling
+- DSSAT: DSSAT file operations
+
+Specialized Packages:
+- rdwd: German weather data
+- units: Unit conversion
+- sf: Spatial data (coordinates)
+- openxlsx2: Excel file handling
+
+13.2 Configuration Files
+-------------------------
+
+datamodels.yaml:
+- Data model definitions
+- Master key specifications
+- Mapping file paths
+
+Mapping YAML Files:
+- Transformation rules
+- Variable mappings
+- Unit conversions
+- Code translations
+
+13.3 Data Model Structure
+-------------------------
+
+Input Model (bonares-lte_de):
+- Relational database structure
+- German variable names
+- Multiple linked tables
+- Metadata-driven structure
+
+Intermediate Model (icasa):
+- Standardized variable names
+- Standard units and codes
+- Flat table structure
+- ICASA dictionary compliance
+
+Output Model (dssat):
+- Model-specific file format
+- Fixed-width column format
+- Section-based structure
+- DSSAT v4.8 compatibility
+
+================================================================================
+14. SUMMARY
+================================================================================
+
+The csmTools pipeline provides automated conversion of raw experimental data
+to standardized formats:
+
+1. Raw Data (BonaRes): German CSV files with relational structure
+2. ICASA Format: Standardized intermediate format using ICASA dictionary
+3. DSSAT Format: Model-ready input files for crop simulation
+
+Key Features:
+- Automated variable mapping and unit conversion
+- Standardized data structure using ICASA dictionary
+- Initial conditions calculation for soil water and nitrogen
+- DSSAT file generation with proper formatting
+- Integration with simulation and visualization workflows
+
+The pipeline ensures data consistency, reproducibility, and interoperability
+between different data sources and crop simulation models.
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+

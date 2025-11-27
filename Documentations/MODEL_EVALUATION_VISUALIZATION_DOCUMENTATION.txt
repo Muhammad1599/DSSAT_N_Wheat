@@ -1,0 +1,578 @@
+MODEL EVALUATION VISUALIZATION DOCUMENTATION
+============================================
+
+Purpose: This document explains the logic, methodology, and interpretation of each
+         plot in the model evaluation visualization. The visualization provides
+         comprehensive statistical analysis comparing simulated and observed data
+         for all 15 nitrogen treatments.
+
+File: model_evaluation_analysis.py
+Output: {year}_model_evaluation.png and {year}_model_evaluation.pdf
+Layout: 2 rows × 4 columns (8 panels total)
+Top Legend: Treatment-N mapping displayed at top of entire figure for reference
+
+================================================================================
+PANEL DESCRIPTIONS AND LOGIC
+================================================================================
+
+PANEL A: YIELD - SIMULATED VS OBSERVED
+---------------------------------------
+Type: Scatter plot with 1:1 line and regression line
+
+What it shows:
+- Each point represents one treatment (1-15) with treatment label (T1, T2, T3, etc.)
+  displayed directly on each point
+- X-axis: Observed yield (kg/ha) from field measurements
+- Y-axis: Simulated yield (kg/ha) from DSSAT model output
+- Red dashed line: Perfect 1:1 agreement (ideal model performance)
+- Blue solid line: Regression line showing actual model-observation relationship
+- Treatment labels: White bold text (T1, T2, etc.) centered on each point for easy
+  identification
+
+Logic:
+This is the fundamental validation plot. It directly compares model predictions
+against field observations. The closer points are to the 1:1 line, the better the
+model accuracy. Treatment labels on points allow immediate identification of which
+treatment each point represents.
+
+Interpretation:
+- Points on the 1:1 line: Perfect prediction for that treatment
+- Points above 1:1 line: Model overestimates yield (simulated > observed)
+- Points below 1:1 line: Model underestimates yield (simulated < observed)
+- Treatment labels: Each point is labeled (T1-T15) for easy identification
+- Regression line slope: Indicates systematic bias (slope < 1 = underestimation,
+  slope > 1 = overestimation)
+- Regression line intercept: Indicates constant bias (positive = systematic
+  overestimation, negative = systematic underestimation)
+
+Metrics displayed:
+- R² (Coefficient of Determination): Proportion of variance in observed data
+  explained by model (0-1, higher is better, 1 = perfect)
+- RMSE (Root Mean Squared Error): Average magnitude of prediction errors in kg/ha
+  (lower is better, 0 = perfect)
+- MAE (Mean Absolute Error): Average absolute difference between simulated and
+  observed (lower is better, 0 = perfect)
+- ME (Model Efficiency): Nash-Sutcliffe efficiency coefficient (can be negative,
+  >0.5 = good, 1 = perfect, <0 = model worse than using mean)
+
+Why this plot:
+This is the primary validation metric. It shows overall model performance across
+all treatments and identifies if the model has systematic biases or random errors.
+Treatment labels on points enable quick identification of treatment-specific
+performance patterns.
+
+
+PANEL B: YIELD PREDICTION ERROR BY TREATMENT
+---------------------------------------------
+Type: Bar chart (colored by error direction)
+
+What it shows:
+- X-axis: Treatment number only (1, 2, 3, 4... 15) - simple numeric labels
+- Y-axis: Yield error percentage [(Simulated - Observed) / Observed × 100]
+- Green bars: Positive errors (model overestimates)
+- Red bars: Negative errors (model underestimates)
+- Black horizontal line: Zero error reference
+- Top legend: Treatment-N mapping shown at top of entire figure (T1: 120, T2: 120,
+  T3: 40, etc.) for reference
+
+Logic:
+This plot breaks down the overall error from Panel A into treatment-specific
+errors. It shows which treatments are predicted well and which have large errors.
+X-axis shows only treatment numbers for clarity, while the top legend provides
+the N amount for each treatment.
+
+Interpretation:
+- Positive values (%): Model overestimates yield for that treatment
+- Negative values (%): Model underestimates yield for that treatment
+- Values close to 0%: Good prediction for that treatment
+- Large absolute values: Poor prediction for that treatment
+- Treatment-N reference: Use top legend to identify N amount for each treatment
+- Pattern analysis: If errors are systematic (all positive or all negative),
+  the model has a bias. If errors vary randomly, the model has random errors.
+
+Why this plot:
+Identifies treatment-specific model performance. Helps understand if certain
+nitrogen levels or fertilizer types are predicted better or worse than others.
+Useful for identifying model limitations and areas for improvement. The top
+legend allows easy cross-reference of treatment numbers with their N amounts.
+
+
+PANEL C: TREATMENT PERFORMANCE RANKING
+---------------------------------------
+Type: Horizontal bar chart (ranked by absolute error)
+
+What it shows:
+- Y-axis: Treatment numbers (sorted by performance, best to worst)
+- X-axis: Absolute yield error percentage [|Simulated - Observed| / Observed × 100]
+- Color coding:
+  - Green: Error < 10% (excellent prediction)
+  - Orange: Error 10-20% (good prediction)
+  - Red: Error > 20% (poor prediction)
+
+Logic:
+This plot ranks all treatments by prediction accuracy, making it easy to identify
+which treatments are predicted best and worst. The absolute error removes the
+direction of error (over/underestimation) and focuses purely on accuracy.
+
+Interpretation:
+- Treatments at the top (left side): Best predicted by the model
+- Treatments at the bottom (right side): Worst predicted by the model
+- Green bars: High accuracy predictions
+- Red bars: Low accuracy predictions requiring attention
+- Treatment patterns: If certain treatment types cluster together (e.g., all
+  high N treatments are red), it indicates model limitations for those conditions
+
+Why this plot:
+Provides a clear ranking of model performance across treatments. Helps prioritize
+which treatments need model improvement and identifies patterns in prediction
+accuracy related to nitrogen levels or fertilizer types.
+
+
+PANEL D: MODEL EFFICIENCY BY TREATMENT
+---------------------------------------
+Type: Bar chart (colored by efficiency level)
+
+What it shows:
+- X-axis: Treatment number only (1, 2, 3, 4... 15) - simple numeric labels
+- Y-axis: Model Efficiency (Nash-Sutcliffe coefficient)
+- Color coding:
+  - Green: Efficiency > 0.5 (good model performance)
+  - Orange: Efficiency 0-0.5 (moderate model performance)
+  - Red: Efficiency < 0 (model worse than using mean)
+
+Logic:
+Model Efficiency (Nash-Sutcliffe) compares model predictions against using the
+mean observed value as a predictor. It's a normalized metric that accounts for
+the variance in observed data. X-axis shows only treatment numbers for clarity.
+
+Calculation:
+ME = 1 - Σ(Observed - Simulated)² / Σ(Observed - Mean_Observed)²
+
+Interpretation:
+- ME = 1: Perfect predictions (all points on 1:1 line)
+- ME > 0.5: Model is good (better than using mean)
+- ME = 0: Model performs as well as using the mean observed value
+- ME < 0: Model performs worse than simply using the mean (very poor)
+- ME = -∞: Worst possible model
+- Treatment-N reference: Use top legend to identify N amount for each treatment
+
+Why this plot:
+Model Efficiency is a normalized metric that accounts for the difficulty of
+predicting each treatment. A treatment with high variance in observed data is
+harder to predict, and ME accounts for this. This helps identify if poor
+performance is due to model limitations or high variability in observations.
+
+
+PANEL E: GRAIN WEIGHT - SIMULATED VS OBSERVED
+---------------------------------------------
+Type: Scatter plot with 1:1 line
+
+What it shows:
+- Each point represents one treatment (1-15) with treatment label (T1, T2, T3, etc.)
+  displayed directly on each point
+- X-axis: Observed grain weight (mg/grain) from field measurements
+- Y-axis: Simulated grain weight (mg/grain) from DSSAT PlantGro.OUT
+- Red dashed line: Perfect 1:1 agreement
+- Treatment labels: White bold text (T1, T2, etc.) centered on each point
+- Metrics box: R², RMSE, MAE for grain weight
+
+Logic:
+Grain weight (GWGD) is a key yield component. This plot validates the model's
+ability to predict individual grain size, which affects both yield and grain
+quality. Treatment labels on points allow immediate identification of which
+treatment each point represents.
+
+Data sources:
+- Observed: From .WHT file, column GWGD (grain weight in mg/grain)
+- Simulated: From PlantGro.OUT, column 15 (GWGD - final value at harvest)
+
+Interpretation:
+- Points on 1:1 line: Perfect grain weight prediction
+- Points above line: Model overestimates grain size
+- Points below line: Model underestimates grain size
+- Treatment labels: Each point is labeled (T1-T15) for easy identification
+- R²: How well model explains grain weight variation
+- RMSE/MAE: Average error in mg/grain
+
+Why this plot:
+Grain weight is a critical yield component. Poor grain weight prediction can
+indicate issues with grain filling processes, nitrogen effects on grain size, or
+cultivar parameter calibration. This helps identify if yield errors are due to
+grain number or grain size prediction issues. Treatment labels enable quick
+identification of treatment-specific grain weight patterns.
+
+
+PANEL F: GRAIN NITROGEN - SIMULATED VS OBSERVED
+------------------------------------------------
+Type: Scatter plot with 1:1 line
+
+What it shows:
+- Each point represents one treatment (1-15) with treatment label (T1, T2, T3, etc.)
+  displayed directly on each point
+- X-axis: Observed grain nitrogen (kg N/ha) from field measurements
+- Y-axis: Simulated grain nitrogen (kg N/ha) from DSSAT PlantN.OUT
+- Red dashed line: Perfect 1:1 agreement
+- Treatment labels: White bold text (T1, T2, etc.) centered on each point
+- Metrics box: R², RMSE, MAE for grain nitrogen
+
+Logic:
+Grain nitrogen content is crucial for grain quality and protein content. This
+plot validates the model's nitrogen dynamics, particularly nitrogen translocation
+to grain during grain filling. Treatment labels on points allow immediate
+identification of which treatment each point represents.
+
+Data sources:
+- Observed: From .WHT file, column GNAD (grain nitrogen in kg N/ha)
+- Simulated: From PlantN.OUT, column 5 (GNAD - final value at harvest)
+
+Interpretation:
+- Points on 1:1 line: Perfect grain nitrogen prediction
+- Points above line: Model overestimates grain nitrogen
+- Points below line: Model underestimates grain nitrogen
+- Treatment labels: Each point is labeled (T1-T15) for easy identification
+- R²: How well model explains grain nitrogen variation across treatments
+- RMSE/MAE: Average error in kg N/ha
+
+Why this plot:
+Grain nitrogen is directly related to grain protein content (protein ≈ N × 5.7).
+This plot validates the model's ability to predict nitrogen uptake, translocation,
+and grain nitrogen accumulation. Poor performance here indicates issues with
+nitrogen dynamics modeling, which is critical for nitrogen-limited treatments.
+Treatment labels enable quick identification of treatment-specific grain nitrogen
+patterns.
+
+
+PANEL G: MODEL PERFORMANCE METRICS (YIELD)
+-------------------------------------------
+Type: Bar chart showing key metrics
+
+What it shows:
+- X-axis: Four key metrics (R², RMSE, MAE, Model Efficiency)
+- Y-axis: Metric values (scaled for RMSE and MAE to fit on same scale)
+- Bar colors: Different color for each metric
+- Value labels: Actual values displayed on each bar
+
+Logic:
+This plot provides a quick visual summary of overall model performance for yield.
+All key metrics are displayed together for easy comparison.
+
+Metrics explained:
+- R²: Proportion of variance explained (0-1 scale, displayed as-is)
+- RMSE: Root Mean Squared Error (scaled by dividing by 1000 for visibility,
+  actual value shown in label)
+- MAE: Mean Absolute Error (scaled by dividing by 1000 for visibility,
+  actual value shown in label)
+- Model Efficiency: Nash-Sutcliffe coefficient (0-1 scale, displayed as-is)
+
+Interpretation:
+- Higher R²: Better model fit
+- Lower RMSE/MAE: Better model accuracy (note: values are scaled for display)
+- Higher Model Efficiency: Better model performance relative to using mean
+
+Why this plot:
+Provides a quick visual summary of model performance. All key metrics in one
+place makes it easy to assess overall model quality at a glance. The scaling
+allows all metrics to be compared visually, while actual values are shown in
+labels.
+
+
+PANEL H: SUMMARY STATISTICS TABLE
+-----------------------------------
+Type: Table with all metrics for all variables
+
+What it shows:
+- Rows: Variables (Yield, Grain Weight, Grain Nitrogen)
+- Columns: Performance metrics (R², RMSE, MAE, Model Efficiency)
+- Color coding: Header row in green
+
+Logic:
+This table provides a comprehensive summary of model performance across all
+measured variables. It allows direct comparison of model accuracy for different
+output variables.
+
+Metrics for each variable:
+- Yield: Overall crop yield prediction accuracy
+- Grain Weight: Individual grain size prediction accuracy
+- Grain Nitrogen: Grain nitrogen content prediction accuracy
+
+Interpretation:
+- Compare R² across variables: Which variable is predicted most accurately?
+- Compare RMSE/MAE: Which variable has smallest errors (note units differ)?
+- Compare Model Efficiency: Which variable shows best relative performance?
+
+Why this plot:
+Provides a complete summary in tabular format. Easy to read exact values and
+compare performance across different model outputs. Useful for reporting and
+identifying which aspects of the model need improvement.
+
+
+================================================================================
+OVERALL VISUALIZATION LOGIC
+================================================================================
+
+Top Legend:
+A treatment-N mapping legend is displayed at the top of the entire figure,
+separate from all individual plots. This legend shows:
+- Format: "Treatment N (kg/ha): T1: 120 | T2: 120 | T3: 40 | ..."
+- Location: Top center of figure (above all panels)
+- Font: Size 8, monospace for alignment
+- Style: Light gray background box
+- Purpose: Provides a centralized reference for all plots, allowing viewers to
+  easily identify which treatment number corresponds to which N amount
+
+Layout Rationale:
+The 8-panel layout is organized into two logical groups:
+
+Row 1 (Yield-focused analysis):
+- Panel A: Overall yield validation (primary metric)
+- Panel B: Treatment-specific yield errors (error breakdown)
+- Panel C: Treatment ranking (performance comparison)
+- Panel D: Treatment efficiency (normalized performance)
+
+Row 2 (Component and summary analysis):
+- Panel E: Grain weight validation (yield component)
+- Panel F: Grain nitrogen validation (quality metric)
+- Panel G: Metrics summary (quick overview)
+- Panel H: Complete statistics table (comprehensive summary)
+
+This organization flows from:
+1. Primary validation (yield)
+2. Error analysis (treatment-specific)
+3. Performance ranking (comparison)
+4. Efficiency analysis (normalized)
+5. Component validation (grain weight)
+6. Quality validation (grain nitrogen)
+7. Metrics overview (summary)
+8. Complete statistics (reference)
+
+Data Processing:
+- All 15 treatments are analyzed (complete dataset)
+- Missing data is handled gracefully (masked out, not plotted)
+- Metrics are calculated only on valid data pairs
+- Standard statistical methods are used (RMSE, MAE, R², Nash-Sutcliffe)
+
+Color Coding Logic:
+- Green: Good performance (low errors, high efficiency)
+- Orange: Moderate performance (medium errors, moderate efficiency)
+- Red: Poor performance (high errors, low/negative efficiency)
+- Blue/Red/Orange: Different metrics in bar charts (for distinction)
+
+Treatment Labeling Strategy:
+- Scatter plots (Panels A, E, F): Treatment labels (T1, T2, etc.) displayed
+  directly on each point in white bold text for easy identification
+- Bar charts (Panels B, C, D): X-axis or Y-axis shows treatment numbers only
+  (1, 2, 3...) for clarity, with top legend providing N amount reference
+- Top legend: Centralized treatment-N mapping at top of entire figure for
+  reference across all plots
+
+Interpretation Guidelines:
+1. Start with Panel A (yield validation) - primary metric
+2. Check Panel B for treatment-specific issues
+3. Use Panel C to identify best/worst treatments
+4. Panel D shows normalized performance
+5. Panels E and F validate yield components
+6. Panel G provides quick metrics overview
+7. Panel H has exact values for reporting
+
+Common Patterns to Look For:
+- Systematic bias: All points above or below 1:1 line in Panel A
+- Treatment-specific issues: Clusters of red bars in Panel B
+- Nitrogen level effects: Pattern in Panel C related to N application
+- Component issues: Large errors in Panels E or F but not Panel A
+- Overall quality: High R² and Model Efficiency in Panels G and H
+
+
+================================================================================
+STATISTICAL METRICS EXPLANATION
+================================================================================
+
+R² (Coefficient of Determination):
+- Range: 0 to 1 (can be negative for very poor models)
+- Interpretation:
+  * 1.0 = Perfect prediction (all variance explained)
+  * >0.7 = Good model
+  * 0.5-0.7 = Moderate model
+  * <0.5 = Poor model
+  * <0 = Model worse than horizontal line
+- Formula: R² = 1 - (SS_res / SS_tot)
+  where SS_res = sum of squared residuals
+        SS_tot = total sum of squares
+
+RMSE (Root Mean Squared Error):
+- Range: 0 to infinity (0 = perfect)
+- Units: Same as the variable (kg/ha for yield, mg for grain weight)
+- Interpretation:
+  * Lower is better
+  * Penalizes large errors more than small errors (squared term)
+  * Represents typical prediction error magnitude
+- Formula: RMSE = √[Σ(Observed - Simulated)² / n]
+
+MAE (Mean Absolute Error):
+- Range: 0 to infinity (0 = perfect)
+- Units: Same as the variable
+- Interpretation:
+  * Lower is better
+  * Treats all errors equally (no squaring)
+  * Represents average prediction error
+- Formula: MAE = Σ|Observed - Simulated| / n
+
+Model Efficiency (Nash-Sutcliffe Efficiency):
+- Range: -∞ to 1 (1 = perfect, 0 = as good as mean, <0 = worse than mean)
+- Interpretation:
+  * 1.0 = Perfect predictions
+  * >0.5 = Good model performance
+  * 0-0.5 = Moderate performance
+  * 0 = Model as good as using mean observed value
+  * <0 = Model worse than using mean (very poor)
+- Formula: ME = 1 - [Σ(Obs - Sim)² / Σ(Obs - Mean_Obs)²]
+- Advantage: Accounts for variance in observed data (normalized metric)
+
+Bias (Mean Error):
+- Range: -∞ to +∞ (0 = no bias)
+- Units: Same as the variable
+- Interpretation:
+  * 0 = No systematic bias
+  * Positive = Model systematically overestimates
+  * Negative = Model systematically underestimates
+- Formula: Bias = Mean(Simulated - Observed)
+
+
+================================================================================
+DATA SOURCES
+================================================================================
+
+Simulated Data:
+- Yield (HWAM): From Summary.OUT, column 25 (final grain yield in kg/ha)
+- Biomass (CWAM): From Summary.OUT, column 24 (final total biomass in kg/ha)
+- Grain Weight (GWGD): From PlantGro.OUT, column 15 (final grain weight in mg/grain)
+- Grain Nitrogen (GNAD): From PlantN.OUT, column 5 (final grain nitrogen in kg N/ha)
+- Nitrogen Applied: From Summary.OUT, column 50 (NICM - total N applied in kg/ha)
+
+Observed Data:
+- Yield (HWAD): From .WHT file, column 3 (harvest weight in kg/ha)
+- Grain Weight (GWGD): From .WHT file, column 4 (grain weight in mg/grain)
+- Grain Nitrogen (GNAD): From .WHT file, column 5 (grain nitrogen in kg N/ha)
+- Standard Deviations: Calculated from replications in .WHT file
+
+Data Processing:
+- All treatments (1-15) are included in analysis
+- Missing data (marked as -99) is excluded from calculations
+- Means and standard deviations calculated from replications
+- Final values used (harvest/maturity values, not time series)
+
+
+================================================================================
+USE CASES AND INTERPRETATION SCENARIOS
+================================================================================
+
+Scenario 1: Overall Good Model Performance
+- Panel A: Points clustered close to 1:1 line, high R² (>0.7)
+- Panel B: Most bars small (close to 0%)
+- Panel C: Most treatments green or orange
+- Panel D: Most treatments with efficiency >0.5
+- Interpretation: Model performs well across treatments
+
+Scenario 2: Systematic Underestimation
+- Panel A: Most points below 1:1 line, regression slope <1
+- Panel B: Most bars negative (red)
+- Panel C: Errors consistent across treatments
+- Panel D: Efficiencies may be moderate but consistent
+- Interpretation: Model has systematic bias, may need calibration
+
+Scenario 3: Treatment-Specific Issues
+- Panel A: Some points far from 1:1 line
+- Panel B: Large errors for specific treatments (e.g., Control or High N)
+- Panel C: Clear separation between good and poor treatments
+- Panel D: Efficiency varies significantly by treatment
+- Interpretation: Model performs well for some conditions but not others
+
+Scenario 4: High Variability in Observations
+- Panel A: Points scattered widely even if centered on 1:1 line
+- Panel B: Errors may be large but random (not systematic)
+- Panel C: Ranking may not show clear pattern
+- Panel D: Model Efficiency may be moderate despite high R²
+- Interpretation: High field variability makes prediction difficult
+
+Scenario 5: Component vs Overall Performance
+- Panel A: Good yield prediction (high R²)
+- Panel E: Poor grain weight prediction
+- Panel F: Good grain nitrogen prediction
+- Interpretation: Yield errors may be due to grain number vs grain size issues
+
+
+================================================================================
+LIMITATIONS AND CONSIDERATIONS
+================================================================================
+
+1. Sample Size:
+   - Analysis includes all 15 treatments
+   - Some treatments may have limited replications in observed data
+   - Standard deviations shown where multiple replications available
+
+2. Missing Data:
+   - Treatments with missing observed or simulated data are excluded from
+     specific plots
+   - Metrics calculated only on available data pairs
+
+3. Units and Scaling:
+   - RMSE and MAE in Panel G are scaled (divided by 1000) for visual comparison
+   - Actual values shown in labels
+   - Different variables have different units (kg/ha, mg, etc.)
+
+4. Model Efficiency Interpretation:
+   - Negative values indicate very poor model performance
+   - Efficiency can be misleading if observed data has very low variance
+   - Should be interpreted alongside R² and RMSE
+
+5. Treatment Comparison:
+   - All treatments analyzed, but visualization focuses on overall patterns
+   - Treatment-specific issues visible in Panels B, C, and D
+   - Detailed treatment comparison available in CSV files
+
+
+================================================================================
+FILES GENERATED
+================================================================================
+
+1. {year}_model_evaluation.png
+   - High-resolution PNG image (300 DPI)
+   - Suitable for presentations and publications
+   - Size: ~700-900 KB
+
+2. {year}_model_evaluation.pdf
+   - Vector format PDF
+   - Suitable for printing and publications
+   - Size: ~45 KB
+
+3. {year}_comparison_all_treatments.csv
+   - Complete data table with all treatments
+   - Includes simulated, observed, differences, and errors
+   - Suitable for further statistical analysis
+
+4. {year}_model_metrics_summary.csv
+   - Summary statistics for all variables
+   - Includes R², RMSE, MAE, Model Efficiency, Bias
+   - Suitable for reporting and comparison
+
+
+================================================================================
+CONCLUSION
+================================================================================
+
+This visualization provides a comprehensive evaluation of DSSAT model performance
+across all 15 nitrogen treatments. The 8-panel layout systematically evaluates:
+
+1. Overall model accuracy (yield validation)
+2. Treatment-specific performance (error analysis)
+3. Relative performance ranking (comparison)
+4. Normalized performance (efficiency)
+5. Component validation (grain weight)
+6. Quality validation (grain nitrogen)
+7. Metrics overview (summary)
+8. Complete statistics (reference)
+
+Together, these panels provide a complete picture of model performance, identifying
+strengths, weaknesses, and areas for improvement. The visualization supports both
+scientific analysis and practical model application for nitrogen management
+decision-making.
+

@@ -1,0 +1,1305 @@
+================================================================================
+TECHNICAL VISUALIZATION DOCUMENTATION
+Duernast DSSAT N-Wheat Comprehensive Analysis
+12-Panel Visualization Generation
+================================================================================
+
+Date: 2025-11-23
+Purpose: Complete technical documentation explaining data extraction, calculations,
+         methodology, and visualization logic for each panel in the comprehensive
+         analysis figure.
+
+================================================================================
+OVERVIEW
+================================================================================
+
+The visualization generates a 12-panel vertical layout figure showing:
+- 3 selected treatments: Treatment 1 (Medium N), Treatment 8 (High N), Treatment 15 (Control)
+- Time series data from planting to harvest
+- Simulated vs observed comparisons
+- Environmental drivers, stress factors, growth responses, and validation
+
+Figure Size: 18 inches wide × 36 inches tall
+Output Formats: PNG (300 DPI) and PDF (vector)
+File Naming: {OUTPUT_PREFIX}_comprehensive_analysis.{png|pdf}
+
+================================================================================
+DATA SOURCES AND PARSING FUNCTIONS
+================================================================================
+
+1. SUMMARY.OUT (DSSAT Output File)
+   Function: parse_summary_phenology()
+   Purpose: Extract phenology stages and nitrogen application levels
+   
+   Data Extracted:
+   - Column 1: Treatment number
+   - Column 16: SDAT (Sowing date) - DSSAT format YYYYDDD
+   - Column 17: PDAT (Planting date) - DSSAT format YYYYDDD
+   - Column 18: EDAT (Emergence date) - DSSAT format YYYYDDD
+   - Column 19: ADAT (Anthesis date) - DSSAT format YYYYDDD
+   - Column 20: MDAT (Maturity date) - DSSAT format YYYYDDD
+   - Column 21: HDAT (Harvest date) - DSSAT format YYYYDDD
+   - Column 50: NICM (Nitrogen applied, kg/ha)
+   
+   Processing:
+   - Only processes treatments 1, 8, 15 (SELECTED_TREATMENTS)
+   - Converts dates to Days After Planting (DAS) using date_to_das() function
+   - Formula: DAS = (date_doy - planting_doy) if date_doy >= planting_doy
+              else (date_doy + 365 - planting_doy)
+   - Returns: Dictionary of phenology stages and nitrogen levels per treatment
+   
+   Consensus Calculation: get_consensus_stages()
+   - Uses most common (mode) value across all selected treatments
+   - Provides single DAS value for emergence, anthesis, maturity, harvest
+   - Used for vertical phenology lines on all panels
+
+
+2. PlantGro.OUT (DSSAT Output File)
+   Function: parse_plantgro_data(n_levels)
+   Purpose: Extract daily plant growth variables for selected treatments
+   
+   File Structure:
+   - Split by *RUN sections (one per treatment)
+   - Header line: @YEAR DOY DAS ... (column names)
+   - Data lines: Space-separated values
+   
+   Data Extracted (N-Wheat WHAPS048 model column positions):
+   - Column 2: DAS (Days After Sowing)
+   - Column 9: HWAD (Harvest weight at 0% moisture, kg/ha) - Grain yield dry weight
+   - Column 12: CWAD (Crop weight, kg/ha) - Total aboveground biomass
+   - Column 13: H#AD (Grain number, grains/m²)
+   - Column 15: GWGD (Grain weight per grain, mg/grain)
+   - Column 16: HIAD (Harvest index, 0-1) - Ratio of grain to total biomass
+   - Column 18: WFPD (Water stress photosynthesis, cumulative, can be > 1)
+   - Column 19: WFGD (Water stress grain filling, daily 0-1 factor)
+   - Column 20: SLFT (Soil water factor for leaves, 0-1)
+   - Column 21: NSTD (Nitrogen stress, cumulative, can be > 1)
+   - Column 34: RDPD (Root depth, m)
+   
+   Additional Data:
+   - TMEAN: Retrieved from Weather.OUT using parse_temperature_data()
+     - Matches DAS from Weather.OUT to get daily average temperature
+     - Fallback: 15.0°C if not found
+   
+   Derived Calculations:
+   a) Daily Water Stress Factor (WFTD):
+      - If WFPD > 0 OR SLFT > 0: WFTD = min(WFPD, SLFT)
+      - Else: WFTD = 1.0
+      - Interpretation: 1.0 = optimal, < 1.0 = stressed
+   
+   b) Daily Nitrogen Stress Factor (NFTD):
+      - If NSTD == 0: NFTD = 1.0
+      - Else: NFTD = max(0.0, min(1.0, 1.0 - (NSTD / 100.0)))
+      - Interpretation: 1.0 = optimal, < 1.0 = stressed
+      - Note: N-Wheat doesn't provide daily N stress, so derived from cumulative
+   
+   c) Cumulative Water Stress:
+      - Formula: cumulative_water_stress = cumsum(WFGD) / (row_index + 1)
+      - Interpretation: Average daily water stress grain filling factor
+      - Range: 0 (severe stress) to 1 (optimal)
+   
+   d) Cumulative Nitrogen Stress:
+      - Formula: cumulative_nitrogen_stress = cumsum(NSTD) / (row_index + 1)
+      - Interpretation: Average daily nitrogen stress
+      - Range: 0 (optimal) to higher values (more stress)
+   
+   e) Grain Size (mg):
+      - Formula: grain_size_mg = GWGD.clip(lower=0)
+      - Direct conversion: GWGD is already in mg/grain
+   
+   DAS Normalization (for multi-year simulations like 2017):
+   - If NORMALIZE_DAS = True:
+     - min_das = df['DAS'].min()
+     - df['DAS'] = df['DAS'] - min_das
+     - Result: DAS starts from 0 relative to planting
+   - Purpose: Winter wheat spans two calendar years, normalization aligns to planting
+   
+   Returns: Dictionary with treatment names as keys, pandas DataFrames as values
+            Each DataFrame contains: DAS, TMEAN, CWAD, HWAD, HIAD, H#AD, GWGD, RDPD,
+            WFTD, WFPD, WFGD, NFTD, NSTD, grain_size_mg, daily_water_stress,
+            cumulative_water_stress, daily_nitrogen_stress, cumulative_nitrogen_stress
+
+
+3. PlantN.OUT (DSSAT Output File)
+   Function: parse_nitrogen_data(n_levels)
+   Purpose: Extract nitrogen dynamics data
+   
+   File Structure:
+   - Split by *RUN sections (one per treatment)
+   - Header line: @YEAR DOY DAS ...
+   - Data lines: Space-separated values
+   
+   Data Extracted:
+   - Column 2: DAS (Days After Sowing)
+   - Column 4: CNAD (Crop N, kg/ha) - Total nitrogen in crop (leaves+stems+grains)
+   - Column 5: GNAD (Grain N, kg/ha) - Nitrogen in grains only
+   
+   Processing:
+   - Only processes treatments 1, 8, 15
+   - DAS normalization applied if NORMALIZE_DAS = True (same as PlantGro)
+   - Uses GNAD (grain N only) to match observed data format
+   
+   Returns: Dictionary with treatment names as keys, pandas DataFrames as values
+            Each DataFrame contains: DAS, CNAD, GNAD, nitrogen_uptake (alias for GNAD)
+
+
+4. Weather.OUT (DSSAT Output File)
+   Function: parse_weather_data()
+   Purpose: Extract daily weather variables
+   
+   File Structure:
+   - Split by *RUN sections (weather same for all treatments, uses first section)
+   - Header line: @YEAR DOY DAS ...
+   - Data lines: Space-separated values
+   
+   Data Extracted:
+   - Column 2: DAS (Days After Sowing)
+   - Column 3: PRED (Precipitation, mm/day)
+   - Column 6: SRAD (Solar radiation, MJ/m²/day)
+   - Column 9: TMAX (Maximum temperature, °C) - Column name: TMXD
+   - Column 10: TMIN (Minimum temperature, °C) - Column name: TMND
+   
+   Derived Calculation:
+   - TMEAN (Mean temperature, °C):
+     Formula: TMEAN = (TMAX + TMIN) / 2.0
+   
+   DAS Normalization:
+   - If NORMALIZE_DAS = True: Normalizes DAS to start from 0
+   
+   Returns: pandas DataFrame with columns: DAS, PRED, SRAD, TMAX, TMIN, TMEAN
+
+
+5. Observed Data Files (.WHT or .WHA)
+   Function: parse_observed_data(n_levels)
+   Purpose: Extract field measurement data for validation
+   
+   File Priority:
+   - Prefers .WHT file (has yield + grain weight + grain nitrogen)
+   - Falls back to .WHA file (yield only)
+   
+   .WHT File Format:
+   - Header: @TRNO DATE HWAD GWGD GNAD
+   - Data: Treatment number, harvest date, yield (kg/ha), grain weight (mg), grain N (kg/ha)
+   - Multiple replications per treatment (typically 4-8 replicates)
+   
+   .WHA File Format:
+   - Header: @TRNO HDAT HWAM
+   - Data: Treatment number, harvest date, yield (kg/ha)
+   - Multiple replications per treatment
+   
+   Processing:
+   - Only processes treatments 1, 8, 15
+   - Groups data by treatment
+   - Calculates statistics:
+     * Mean yield: np.mean(all_replicates)
+     * Standard deviation: np.std(all_replicates)
+     * Mean grain weight: np.mean(all_replicates) [if .WHT]
+     * Mean grain nitrogen: np.mean(all_replicates) [if .WHT]
+     * Number of replications: len(replicates)
+   
+   Returns: Dictionary with treatment names as keys, containing:
+            - yield: mean (kg/ha)
+            - std_yield: standard deviation (kg/ha)
+            - grain_weight: mean (mg) [if available]
+            - std_grain_weight: standard deviation (mg) [if available]
+            - grain_nitrogen: mean (kg/ha) [if available]
+            - std_grain_nitrogen: standard deviation (kg/ha) [if available]
+            - n: number of replications
+            - _observed_harvest_date: harvest date (YYYYDDD format)
+
+
+================================================================================
+PANEL-BY-PANEL TECHNICAL DOCUMENTATION
+================================================================================
+
+PANEL 0: Weather Pattern (Tmax, Tmin, Tmean, Rain, Solar Rad)
+---------------------------------------------------------------
+Panel Index: 0
+Variable: 'weather'
+Title: "a) Weather Pattern (Tmax, Tmin, Tmean, Rain, Solar Rad)"
+Y-axis Label: "Temperature (°C), Rain (mm), Rad (MJ/m²)"
+X-axis Label: "Days After Planting (DAS) / Date"
+
+DATA SOURCE:
+- File: Weather.OUT (DSSAT output)
+- Function: parse_weather_data()
+- Columns Used:
+  * DAS: Days After Sowing (column 2)
+  * TMAX: Maximum temperature (column 9, TMXD)
+  * TMIN: Minimum temperature (column 10, TMND)
+  * TMEAN: Calculated as (TMAX + TMIN) / 2.0
+  * PRED: Precipitation (column 3)
+  * SRAD: Solar radiation (column 6)
+
+DATA PROCESSING:
+1. Data is filtered to show only up to harvest date:
+   weather_filtered = weather_data[weather_data['DAS'] <= harvest_das]
+   
+2. DAS normalization (if NORMALIZE_DAS = True):
+   - For 2017 winter wheat: DAS normalized to start from 0
+   - For 2015 spring wheat: DAS used as-is
+
+VISUALIZATION METHODOLOGY:
+- Uses 3 y-axes (primary + 2 secondary) for different units
+- Primary axis (left): Temperature (°C)
+  * TMAX: Red line, linewidth=1.2, alpha=0.8
+  * TMIN: Blue line, linewidth=1.2, alpha=0.8
+  * TMEAN: Green dashed line, linewidth=1.5, alpha=0.9
+- Secondary axis 1 (right): Precipitation (mm)
+  * PRED: Sky blue bars, alpha=0.3, width=1.0 day
+- Secondary axis 2 (right, offset 60px): Solar radiation (MJ/m²)
+  * SRAD: Orange line, linewidth=1.0, alpha=0.7
+
+DATE LABELS:
+- Planting date extracted from phenology_stages (first treatment's planting_date)
+- DSSAT date format (YYYYDDD) converted to datetime:
+  * year = planting_date // 1000
+  * doy = planting_date % 1000
+  * planting_date = datetime(year, 1, 1) + timedelta(days=doy - 1)
+- For each x-axis tick:
+  * date = planting_date + timedelta(days=int(tick))
+  * Label format: "MMM DD" (e.g., "Mar 11")
+- X-axis labels show both DAS and date: "{DAS}\n{date}"
+- Planting date displayed in text box: "Planting: {MMM DD, YYYY}"
+
+X-AXIS CONFIGURATION:
+- Consistent x-axis limits and ticks with all other panels
+- Ticks include: 0, key phenology stages, every 40 days, maximum DAS
+- Date labels added below DAS values (only on weather panel)
+
+PHENOLOGY MARKERS:
+- Vertical lines at: Emergence (green), Anthesis (pink), Maturity (orange), Harvest (red)
+- Text labels at top: E/{emergence_das}, A/{anthesis_das}, M/{maturity_das}, H/{harvest_das}
+
+
+PANEL 1: Cumulative Water Stress
+----------------------------------
+Panel Index: 1
+Variable: 'cumulative_water_stress'
+Title: "b) Cumulative Water Stress (avg daily WSGD)"
+Y-axis Label: "Avg Daily WSGD\n(0=optimal, higher=more stress)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: WFGD (Water stress grain filling, column 19)
+
+CALCULATION METHODOLOGY:
+1. Raw Data Extraction:
+   - WFGD extracted from PlantGro.OUT column 19 for each day
+   - WFGD range: 0-1 (0 = severe stress, 1 = optimal)
+   
+2. Cumulative Calculation:
+   - Step 1: Calculate cumulative sum: cumsum_wsgd = df['WFGD'].cumsum()
+   - Step 2: Calculate average: cumulative_water_stress = cumsum_wsgd / (df.index + 1)
+   - Formula: Average daily WSGD = Σ(WFGD_i) / n
+     where n = number of days from planting to current day
+   
+3. Interpretation:
+   - Value = 1.0: Optimal water conditions throughout
+   - Value < 1.0: Some water stress occurred
+   - Value = 0.0: Severe water stress throughout
+   - Higher values = better water conditions
+
+VISUALIZATION:
+- Line plot for each treatment (1, 8, 15)
+- Treatment 1 (blue), Treatment 8 (orange), Treatment 15 (green)
+- Data filtered to harvest_das: df[df['DAS'] <= harvest_das]
+- X-axis: Consistent with all panels (DAS with phenology markers)
+- Y-axis: Auto-scaled based on data range
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels (Emergence, Anthesis, Maturity, Harvest)
+
+
+PANEL 2: Cumulative Nitrogen Stress
+-------------------------------------
+Panel Index: 2
+Variable: 'cumulative_nitrogen_stress'
+Title: "c) Cumulative Nitrogen Stress (avg daily NSTD)"
+Y-axis Label: "Avg Daily NSTD\n(0=optimal, higher=more stress)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: NSTD (Nitrogen stress, column 21)
+
+CALCULATION METHODOLOGY:
+1. Raw Data Extraction:
+   - NSTD extracted from PlantGro.OUT column 21 for each day
+   - NSTD range: 0+ (0 = optimal, higher = more stress, can exceed 1)
+   
+2. Cumulative Calculation:
+   - Step 1: Calculate cumulative sum: cumsum_nstd = df['NSTD'].cumsum()
+   - Step 2: Calculate average: cumulative_nitrogen_stress = cumsum_nstd / (df.index + 1)
+   - Formula: Average daily NSTD = Σ(NSTD_i) / n
+     where n = number of days from planting to current day
+   
+3. Interpretation:
+   - Value = 0.0: Optimal nitrogen conditions throughout
+   - Value > 0.0: Some nitrogen stress occurred
+   - Higher values = more cumulative nitrogen stress
+
+VISUALIZATION:
+- Line plot for each treatment (1, 8, 15)
+- Treatment 1 (blue), Treatment 8 (orange), Treatment 15 (green)
+- Data filtered to harvest_das
+- X-axis: Consistent with all panels
+- Y-axis: Auto-scaled (typically 0 to 2-5 range)
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 3: Grain Yield at 0% Moisture
+------------------------------------
+Panel Index: 3
+Variable: 'HWAD'
+Title: "d) Grain Yield at 0% moisture (dry weight) (lines=simulated, circles=observed)"
+Y-axis Label: "Grain Yield (kg/ha @ 0% moisture)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE - SIMULATED:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: HWAD (Harvest weight at 0% moisture, column 9)
+- Units: kg/ha (dry matter, 0% moisture content)
+
+DATA SOURCE - OBSERVED:
+- File: {FILE_PREFIX}.WHT or {FILE_PREFIX}.WHA
+- Function: parse_observed_data()
+- Column Used:
+  * .WHT: HWAD (column 2) - Harvest weight at 0% moisture
+  * .WHA: HWAM (column 2) - Harvest weight (assumed 0% moisture)
+- Processing:
+  * Multiple replications per treatment (typically 4-8)
+  * Mean calculated: np.mean(all_replicates)
+  * Standard deviation: np.std(all_replicates)
+  * Plotted at harvest_das (consensus harvest date)
+
+CALCULATION METHODOLOGY:
+- Simulated: Direct extraction from PlantGro.OUT, no calculation
+- Observed: Statistical aggregation of field measurements
+  * Mean = sum(all_replicates) / n_replicates
+  * Std = sqrt(sum((x_i - mean)²) / n_replicates)
+
+VISUALIZATION:
+- Simulated: Line plot for each treatment
+  * Treatment 1: Blue solid line
+  * Treatment 8: Orange solid line
+  * Treatment 15: Green solid line
+  * Data filtered to harvest_das
+- Observed: Scatter points at harvest
+  * Marker: Circle, size=80, white edge, alpha=0.9
+  * Error bars: ±1 standard deviation (if std > 0)
+    - Format: errorbar with capsize=4, alpha=0.6
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 4: Total Biomass Development
+-----------------------------------
+Panel Index: 4
+Variable: 'CWAD'
+Title: "e) Total Biomass Development"
+Y-axis Label: "Biomass (kg/ha)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: CWAD (Crop weight, column 12)
+- Units: kg/ha (total aboveground biomass: leaves + stems + grains)
+
+CALCULATION METHODOLOGY:
+- Direct extraction from PlantGro.OUT, no calculation
+- Represents total aboveground dry matter accumulation over time
+- Includes all plant parts: vegetative (leaves, stems) + reproductive (grains)
+
+VISUALIZATION:
+- Line plot for each treatment (1, 8, 15)
+- Treatment 1 (blue), Treatment 8 (orange), Treatment 15 (green)
+- Data filtered to harvest_das
+- X-axis: Consistent with all panels
+- Y-axis: Auto-scaled (typically 0 to 15,000-20,000 kg/ha)
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 5: Harvest Index
+----------------------
+Panel Index: 5
+Variable: 'HIAD'
+Title: "f) Harvest Index"
+Y-axis Label: "Harvest Index (0-1)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: HIAD (Harvest index, column 16)
+- Units: Dimensionless ratio (0-1)
+
+CALCULATION METHODOLOGY:
+- Direct extraction from PlantGro.OUT
+- Formula (DSSAT internal): HIAD = HWAD / CWAD
+  where HWAD = grain yield, CWAD = total biomass
+- Interpretation:
+  * 0.0 = No grain (all biomass in vegetative parts)
+  * 1.0 = All biomass in grain (theoretical maximum)
+  * Typical range: 0.3-0.5 for wheat
+  * Higher values = more efficient grain production
+
+VISUALIZATION:
+- Line plot for each treatment (1, 8, 15)
+- Treatment 1 (blue), Treatment 8 (orange), Treatment 15 (green)
+- Data filtered to harvest_das
+- X-axis: Consistent with all panels
+- Y-axis: Typically 0 to 0.6 (auto-scaled)
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 6: Grain Number
+---------------------
+Panel Index: 6
+Variable: 'H#AD'
+Title: "g) Grain Number"
+Y-axis Label: "Grains/m²"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: H#AD (Grain number, column 13)
+- Units: Grains per square meter (grains/m²)
+
+CALCULATION METHODOLOGY:
+- Direct extraction from PlantGro.OUT
+- Represents number of grains per unit area
+- Calculated by DSSAT based on:
+  * Spikelet number
+  * Florets per spikelet
+  * Grain set efficiency
+  * Plant population
+
+VISUALIZATION:
+- Line plot for each treatment (1, 8, 15)
+- Treatment 1 (blue), Treatment 8 (orange), Treatment 15 (green)
+- Data filtered to harvest_das
+- X-axis: Consistent with all panels
+- Y-axis: Auto-scaled (typically 10,000-30,000 grains/m²)
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 7: Grain Weight
+---------------------
+Panel Index: 7
+Variable: 'grain_size_mg'
+Title: "h) Grain Weight (lines=simulated, circles=observed)"
+Y-axis Label: "mg/grain"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE - SIMULATED:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: GWGD (Grain weight per grain, column 15)
+- Derived: grain_size_mg = GWGD.clip(lower=0)
+- Units: Milligrams per grain (mg/grain)
+
+DATA SOURCE - OBSERVED:
+- File: {FILE_PREFIX}.WHT
+- Function: parse_observed_data()
+- Column Used: GWGD (column 3) - Grain weight per grain
+- Processing:
+  * Multiple replications per treatment
+  * Mean: np.mean(all_replicates)
+  * Standard deviation: np.std(all_replicates)
+  * Plotted at harvest_das
+
+CALCULATION METHODOLOGY:
+- Simulated: Direct extraction, clipped to ensure non-negative
+- Observed: Statistical aggregation of field measurements
+
+VISUALIZATION:
+- Simulated: Line plot for each treatment
+  * Treatment 1: Blue solid line
+  * Treatment 8: Orange solid line
+  * Treatment 15: Green solid line
+- Observed: Scatter points at harvest
+  * Marker: Circle, size=80, white edge
+  * Error bars: ±1 standard deviation
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 8: Root Depth
+-------------------
+Panel Index: 8
+Variable: 'RDPD'
+Title: "i) Root Depth"
+Y-axis Label: "Root Depth (m)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: RDPD (Root depth, column 34)
+- Units: Meters (m)
+
+CALCULATION METHODOLOGY:
+- Direct extraction from PlantGro.OUT
+- Represents maximum root depth penetration over time
+- Calculated by DSSAT based on:
+  * Root growth rate
+  * Soil physical properties
+  * Water availability
+  * Temperature
+
+VISUALIZATION:
+- Line plot for each treatment (1, 8, 15)
+- Treatment 1 (blue), Treatment 8 (orange), Treatment 15 (green)
+- Data filtered to harvest_das
+- X-axis: Consistent with all panels
+- Y-axis: Auto-scaled (typically 0 to 2-3 m)
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 9: Grain Nitrogen
+-----------------------
+Panel Index: 9
+Variable: 'nitrogen_uptake'
+Title: "j) Grain Nitrogen (lines=simulated, circles=observed)"
+Y-axis Label: "Grain N (kg/ha)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE - SIMULATED:
+- File: PlantN.OUT (DSSAT output)
+- Function: parse_nitrogen_data()
+- Column Used: GNAD (Grain N, column 5)
+- Units: kg N per hectare (kg N/ha)
+- Note: GNAD = Grain nitrogen only (not total crop N)
+
+DATA SOURCE - OBSERVED:
+- File: {FILE_PREFIX}.WHT
+- Function: parse_observed_data()
+- Column Used: GNAD (column 4) - Grain nitrogen
+- Processing:
+  * Multiple replications per treatment
+  * Mean: np.mean(all_replicates)
+  * Standard deviation: np.std(all_replicates)
+  * Plotted at harvest_das
+
+CALCULATION METHODOLOGY:
+- Simulated: Direct extraction from PlantN.OUT
+  * GNAD represents nitrogen accumulated in grains only
+  * Different from CNAD (total crop N including leaves/stems)
+- Observed: Statistical aggregation of field measurements
+  * Laboratory analysis of grain samples
+  * Nitrogen content measured and converted to kg N/ha
+
+VISUALIZATION:
+- Simulated: Line plot for each treatment
+  * Treatment 1: Blue solid line
+  * Treatment 8: Orange solid line
+  * Treatment 15: Green solid line
+- Observed: Scatter points at harvest
+  * Marker: Circle, size=80, white edge
+  * Error bars: ±1 standard deviation
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 10: Grain Protein
+------------------------
+Panel Index: 10
+Variable: 'grain_protein'
+Title: "k) Grain Protein (lines=simulated, circles=observed)"
+Y-axis Label: "Grain Protein (%)"
+X-axis Label: "Days After Planting (DAS)"
+
+DATA SOURCE - SIMULATED:
+- Files: PlantN.OUT + PlantGro.OUT
+- Functions: parse_nitrogen_data() + parse_plantgro_data()
+- Columns Used:
+  * GNAD from PlantN.OUT (Grain N, kg/ha)
+  * HWAD from PlantGro.OUT (Grain yield, kg/ha)
+
+CALCULATION METHODOLOGY:
+1. Data Merging:
+   - Merge PlantN.OUT[['DAS', 'GNAD']] with PlantGro.OUT[['DAS', 'HWAD']]
+   - Merge method: pd.merge(..., on='DAS', how='inner')
+   - Result: Aligned data by DAS with both GNAD and HWAD
+
+2. Protein Calculation:
+   - Formula: grain_protein (%) = (GNAD / HWAD) * 100 * 5.75
+   - Where:
+     * GNAD = Grain nitrogen (kg N/ha)
+     * HWAD = Grain yield (kg/ha)
+     * 5.75 = Nitrogen-to-protein conversion factor (standard for wheat)
+   - Condition: Only calculated where HWAD > 0 (to avoid division by zero)
+   - If HWAD = 0: grain_protein = 0
+
+3. Scientific Basis:
+   - Standard conversion: Protein = N × 5.75 (for wheat)
+   - Represents percentage of grain dry matter that is protein
+   - Typical range: 8-15% for wheat
+
+DATA SOURCE - OBSERVED:
+- File: {FILE_PREFIX}.WHT
+- Function: parse_observed_data()
+- Columns Used:
+  * GNAD (column 4) - Grain nitrogen (kg N/ha)
+  * HWAD (column 2) - Grain yield (kg/ha) - from observed data
+- Processing:
+  * Uses observed grain N and observed grain yield
+  * Mean values from replications
+  * Standard deviation propagated through calculation
+
+OBSERVED PROTEIN CALCULATION:
+1. Get observed grain N: obs_grain_n (mean from replications)
+2. Get simulated grain yield at harvest: sim_grain_yield (from PlantGro.OUT at harvest_das)
+   - Note: Uses simulated yield, not observed yield, for consistency
+3. Calculate: obs_grain_protein = (obs_grain_n / sim_grain_yield) * 100 * 5.75
+4. Error propagation:
+   - obs_std_protein = (obs_std_n / sim_grain_yield) * 100 * 5.75
+   - Where obs_std_n = standard deviation of observed grain N
+
+VISUALIZATION:
+- Simulated: Line plot for each treatment
+  * Treatment 1: Blue solid line
+  * Treatment 8: Orange solid line
+  * Treatment 15: Green solid line
+- Observed: Scatter points at harvest
+  * Marker: Circle, size=80, white edge
+  * Error bars: ±1 standard deviation (propagated)
+
+PHENOLOGY MARKERS:
+- Same vertical lines as all panels
+
+
+PANEL 11: Simulated vs Observed Yields
+---------------------------------------
+Panel Index: 11
+Variable: 'yield_comparison'
+Title: "l) Simulated vs Observed Yields (0% moisture)"
+Y-axis Label: "Yield (kg/ha @ 0% moisture)"
+X-axis Label: Treatment labels (Trt1, Trt8, Trt15)
+
+DATA SOURCE - SIMULATED:
+- File: PlantGro.OUT (DSSAT output)
+- Function: parse_plantgro_data()
+- Column Used: HWAD (Harvest weight at 0% moisture, column 9)
+- Extraction: Final value at last DAS (df['HWAD'].iloc[-1])
+- Units: kg/ha (dry matter, 0% moisture)
+
+DATA SOURCE - OBSERVED:
+- File: {FILE_PREFIX}.WHT or {FILE_PREFIX}.WHA
+- Function: parse_observed_data()
+- Column Used:
+  * .WHT: HWAD (column 2)
+  * .WHA: HWAM (column 2)
+- Processing: Mean of all replications per treatment
+
+CALCULATION METHODOLOGY:
+1. Simulated Yield:
+   - Extract final HWAD value from PlantGro.OUT time series
+   - Value at last DAS before or at harvest_das
+   - Formula: sim_yield = treatments_data[trt_name]['HWAD'].iloc[-1]
+
+2. Observed Yield:
+   - Mean of field measurements: obs_yield = np.mean(all_replicates)
+   - Standard deviation: obs_std = np.std(all_replicates)
+
+3. Error Percentage:
+   - Formula: error_pct = ((sim - obs) / obs) * 100
+   - Interpretation:
+     * Positive: Simulation overestimates
+     * Negative: Simulation underestimates
+     * Zero: Perfect match
+
+VISUALIZATION:
+- Bar chart with grouped bars
+- X-axis: Treatment labels (Trt1, Trt8, Trt15)
+- Y-axis: Yield (kg/ha)
+- Bars:
+  * Observed: Left bars (x - 0.2), width=0.4, alpha=0.6
+  * Simulated: Right bars (x + 0.2), width=0.4, alpha=0.9
+  * Bars use treatment-specific colors
+- Error percentages:
+  * Displayed above bars: "{error_pct:+.0f}%"
+  * Position: max(obs, sim) + 200
+  * Font: Bold, size=7
+
+SPECIAL FEATURES:
+- X-axis: Treatment labels rotated 45°, right-aligned
+- No phenology markers (different x-axis type)
+- Grid: Enabled for easier reading
+
+
+================================================================================
+COMMON VISUALIZATION ELEMENTS
+================================================================================
+
+1. X-AXIS CONFIGURATION (All panels except yield_comparison)
+   ---------------------------------------------------------
+   Calculation:
+   - Find maximum DAS across all treatment data
+   - Create consistent tick list:
+     * Start with 0
+     * Add key phenology stages (emergence, anthesis, maturity, harvest)
+     * Add ticks every 40 days
+     * Ensure max_das is included
+   - Filter ticks: Remove ticks within 3 days of each other (prevent overlap)
+   - Set limits: (-5, max_das + 5)
+   
+   Application:
+   - All panels use same x-axis limits and ticks
+   - Ensures alignment across panels
+   - X-axis label: "Days After Planting (DAS)" (bold on last panel)
+
+2. PHENOLOGY MARKERS (All panels except yield_comparison)
+   -------------------------------------------------------
+   Source: Consensus stages from get_consensus_stages()
+   - emergence_das: Most common emergence DAS across treatments
+   - anthesis_das: Most common anthesis DAS across treatments
+   - maturity_das: Most common maturity DAS across treatments
+   - harvest_das: Most common harvest DAS across treatments (or observed harvest date)
+   
+   Visualization:
+   - Vertical dashed lines at each stage
+   - Emergence: Green (--, alpha=0.6, linewidth=1.2)
+   - Anthesis: Pink/deeppink (--, alpha=0.6, linewidth=1.2)
+   - Maturity: Orange/darkorange (--, alpha=0.6, linewidth=1.2)
+   - Harvest: Red (--, alpha=0.6, linewidth=1.2)
+   - Labels on first panel only:
+     * Text at top: "E\n{emergence_das}", "A\n{anthesis_das}", etc.
+     * Font: Bold, size=8
+   
+   Legend (Figure-level):
+   - Text in top-left corner:
+     * "Phenology Markers:"
+     * "Green: Emergence ({emergence_das} DAS)"
+     * "Pink: Anthesis ({anthesis_das} DAS)"
+     * "Orange: Maturity ({maturity_das} DAS)"
+     * "Red: Harvest ({harvest_das} DAS)"
+
+3. TREATMENT STYLING
+   ------------------
+   Selected Treatments: 1, 8, 15
+   
+   Treatment 1 (Medium N):
+   - Linestyle: Solid (-)
+   - Linewidth: 0.9
+   - Alpha: 0.7
+   - Label: "Trt1:{FertilizerType}-{N_kg}N"
+   
+   Treatment 8 (High N):
+   - Linestyle: Solid (-)
+   - Linewidth: 0.9
+   - Alpha: 0.7
+   - Label: "Trt8:{FertilizerType}-{N_kg}N"
+   
+   Treatment 15 (Control):
+   - Linestyle: Solid (-)
+   - Linewidth: 0.9
+   - Alpha: 0.7
+   - Label: "Trt15:Control-{N_kg}N"
+
+4. DATA FILTERING
+   ---------------
+   All time series data filtered to harvest_das:
+   - df_filtered = df[df['DAS'] <= harvest_das]
+   - Purpose: Prevent lines extending beyond harvest date
+   - Applied to: PlantGro, PlantN, Weather data
+
+5. OBSERVED DATA POINTS
+   ---------------------
+   General Format:
+   - Marker: Circle (o)
+   - Size: 80
+   - Edge: White, width=1.5
+   - Alpha: 0.9
+   - Z-order: 10 (above lines)
+   
+   Error Bars:
+   - Format: errorbar with capsize=4
+   - Alpha: 0.6
+   - Linewidth: 1.5
+   - Z-order: 9 (above lines, below points)
+   - Only shown if standard deviation > 0
+
+6. FIGURE LAYOUT
+   -------------
+   Structure:
+   - 12 subplots in vertical layout
+   - Figure size: 18 × 36 inches
+   - Spacing: hspace=0.35 (between panels)
+   - Margins: top=0.96, right=0.88, left=0.08, bottom=0.02
+   
+   Title:
+   - Suptitle: "Duernast {YEAR} - Comprehensive Seasonal Analysis"
+   - Subtitle: "3 Selected Treatments (Control, Medium N, High N) × Multiple Variables"
+   - Font: Size=20, Bold
+   - Position: y=0.995
+
+7. GRID AND STYLING
+   -----------------
+   - Grid: Enabled on all panels (alpha=0.3, linewidth=0.8)
+   - Style: 'seaborn-v0_8-whitegrid'
+
+
+================================================================================
+SPECIAL CALCULATIONS AND METHODOLOGIES
+================================================================================
+
+1. DAS NORMALIZATION (Multi-year simulations)
+   --------------------------------------------
+   Purpose: Winter wheat (2017) spans two calendar years, normalization aligns to planting
+   
+   Process:
+   - Check NORMALIZE_DAS flag (True for 2017, False for 2015)
+   - If True:
+     * Find minimum DAS: min_das = df['DAS'].min()
+     * Normalize: df['DAS'] = df['DAS'] - min_das
+     * Result: DAS starts from 0 at planting
+   - Applied to: PlantGro.OUT, PlantN.OUT, Weather.OUT
+   
+   Example (2017):
+   - Original DAS range: -68 to 300 (negative = before planting in previous year)
+   - After normalization: 0 to 368 (0 = planting date)
+
+2. CONSENSUS PHENOLOGY STAGES
+   ---------------------------
+   Purpose: Get single DAS values for phenology markers across all treatments
+   
+   Method:
+   - Extract DAS for each stage from all selected treatments
+   - Use Counter to find most common (mode) value
+   - Formula: consensus_stage = Counter(stage_values).most_common(1)[0][0]
+   
+   Rationale:
+   - Treatments may have slightly different phenology timing
+   - Using mode provides representative timing for visualization
+   - Ensures consistent vertical lines across all panels
+
+3. HARVEST DATE DETERMINATION
+   ----------------------------
+   Priority Order:
+   1. Observed harvest date (if available and after maturity)
+      - Source: parse_observed_data() → '_observed_harvest_date'
+      - Validation: Only used if >= maturity_das (biologically sensible)
+   2. Simulated harvest date (consensus from Summary.OUT)
+      - Source: get_consensus_stages() → 'harvest_das'
+   3. Default fallback: 160 DAS
+   
+   Date Conversion:
+   - Observed date in DSSAT format (YYYYDDD)
+   - Converted to DAS using planting date:
+     * date_doy = date % 1000
+     * pdate_doy = planting_date % 1000
+     * das = date_doy - pdate_doy (if same year)
+     * das = date_doy + 365 - pdate_doy (if cross-year)
+
+4. WATER STRESS CALCULATION
+   -------------------------
+   Source Variables (from PlantGro.OUT):
+   - WFPD (column 18): Water stress photosynthesis (cumulative, can be > 1)
+   - WFGD (column 19): Water stress grain filling (daily 0-1 factor)
+   - SLFT (column 20): Soil water factor for leaves (0-1)
+   
+   Daily Water Stress Factor (WFTD):
+   - If WFPD > 0 OR SLFT > 0: WFTD = min(WFPD, SLFT)
+   - Else: WFTD = 1.0
+   - Interpretation: 1.0 = optimal, < 1.0 = stressed
+   
+   Cumulative Water Stress:
+   - Uses WFGD (grain filling stress) for cumulative calculation
+   - Formula: cumsum(WFGD) / n_days
+   - Interpretation: Average daily grain filling stress
+
+5. NITROGEN STRESS CALCULATION
+   ----------------------------
+   Source Variable (from PlantGro.OUT):
+   - NSTD (column 21): Nitrogen stress (cumulative, can be > 1)
+   
+   Daily Nitrogen Stress Factor (NFTD):
+   - If NSTD == 0: NFTD = 1.0 (optimal)
+   - Else: NFTD = max(0.0, min(1.0, 1.0 - (NSTD / 100.0)))
+   - Interpretation: 1.0 = optimal, < 1.0 = stressed
+   - Note: N-Wheat doesn't provide daily N stress, so derived from cumulative
+   
+   Cumulative Nitrogen Stress:
+   - Formula: cumsum(NSTD) / n_days
+   - Interpretation: Average daily nitrogen stress
+   - Range: 0 (optimal) to higher values (more stress)
+
+6. GRAIN PROTEIN CALCULATION
+   --------------------------
+   Formula: Protein (%) = (GNAD / HWAD) * 100 * 5.75
+   
+   Components:
+   - GNAD: Grain nitrogen (kg N/ha) from PlantN.OUT
+   - HWAD: Grain yield (kg/ha) from PlantGro.OUT
+   - 5.75: Nitrogen-to-protein conversion factor (standard for wheat)
+   
+   Scientific Basis:
+   - Wheat protein contains ~17.4% nitrogen by weight
+   - Conversion factor: 100 / 17.4 ≈ 5.75
+   - Standard method for calculating grain protein from nitrogen content
+   
+   Data Alignment:
+   - Merge PlantN.OUT and PlantGro.OUT on DAS
+   - Inner join ensures both values available
+   - Calculate protein only where HWAD > 0
+
+7. OBSERVED DATA STATISTICS
+   -------------------------
+   Mean Calculation:
+   - Formula: mean = Σ(x_i) / n
+   - Where n = number of replications
+   
+   Standard Deviation:
+   - Formula: std = sqrt(Σ(x_i - mean)² / n)
+   - Represents variability across replications
+   
+   Error Propagation (for grain protein):
+   - Observed protein std = (observed N std / simulated yield) * 100 * 5.75
+   - Assumes simulated yield has no error (only observed N error propagated)
+
+
+================================================================================
+FILE FORMATS AND COLUMN POSITIONS
+================================================================================
+
+1. SUMMARY.OUT Format
+   -------------------
+   Structure: Fixed-width or space-separated
+   Header: Various descriptive lines
+   Data: Treatment results in rows
+   
+   Column Positions (0-indexed):
+   - Column 0: Run number or treatment identifier
+   - Column 1: Treatment number
+   - Column 16: SDAT (Sowing date)
+   - Column 17: PDAT (Planting date)
+   - Column 18: EDAT (Emergence date)
+   - Column 19: ADAT (Anthesis date)
+   - Column 20: MDAT (Maturity date)
+   - Column 21: HDAT (Harvest date)
+   - Column 50: NICM (Nitrogen applied, kg/ha)
+
+2. PlantGro.OUT Format
+   ---------------------
+   Structure: Split by *RUN sections
+   Header: @YEAR DOY DAS ... (column names)
+   Data: Daily time series per treatment
+   
+   Column Positions (0-indexed, N-Wheat WHAPS048):
+   - Column 0: YEAR
+   - Column 1: DOY (Day of Year)
+   - Column 2: DAS (Days After Sowing)
+   - Column 9: HWAD (Harvest weight at 0% moisture, kg/ha)
+   - Column 12: CWAD (Crop weight, kg/ha)
+   - Column 13: H#AD (Grain number, grains/m²)
+   - Column 15: GWGD (Grain weight per grain, mg/grain)
+   - Column 16: HIAD (Harvest index, 0-1)
+   - Column 18: WFPD (Water stress photosynthesis)
+   - Column 19: WFGD (Water stress grain filling)
+   - Column 20: SLFT (Soil water factor for leaves)
+   - Column 21: NSTD (Nitrogen stress)
+   - Column 34: RDPD (Root depth, m)
+
+3. PlantN.OUT Format
+   -------------------
+   Structure: Split by *RUN sections
+   Header: @YEAR DOY DAS ...
+   Data: Daily nitrogen dynamics per treatment
+   
+   Column Positions (0-indexed):
+   - Column 0: YEAR
+   - Column 1: DOY (Day of Year)
+   - Column 2: DAS (Days After Sowing)
+   - Column 4: CNAD (Crop N, kg/ha) - Total nitrogen
+   - Column 5: GNAD (Grain N, kg/ha) - Grain nitrogen only
+
+4. Weather.OUT Format
+   --------------------
+   Structure: Split by *RUN sections (weather same for all, uses first)
+   Header: @YEAR DOY DAS ...
+   Data: Daily weather variables
+   
+   Column Positions (0-indexed):
+   - Column 0: YEAR
+   - Column 1: DOY (Day of Year)
+   - Column 2: DAS (Days After Sowing)
+   - Column 3: PRED (Precipitation, mm/day)
+   - Column 6: SRAD (Solar radiation, MJ/m²/day)
+   - Column 9: TMXD (Maximum temperature, °C)
+   - Column 10: TMND (Minimum temperature, °C)
+
+5. .WHT File Format (Observed Data)
+   ---------------------------------
+   Structure: Space-separated values
+   Header: @TRNO DATE HWAD GWGD GNAD
+   Data: Treatment, harvest date, yield, grain weight, grain N
+   
+   Column Positions (0-indexed):
+   - Column 0: TRNO (Treatment number)
+   - Column 1: DATE (Harvest date, YYYYDDD format)
+   - Column 2: HWAD (Harvest weight at 0% moisture, kg/ha)
+   - Column 3: GWGD (Grain weight per grain, mg/grain)
+   - Column 4: GNAD (Grain nitrogen, kg N/ha)
+
+6. .WHA File Format (Observed Data)
+   ---------------------------------
+   Structure: Space-separated values
+   Header: @TRNO HDAT HWAM
+   Data: Treatment, harvest date, yield
+   
+   Column Positions (0-indexed):
+   - Column 0: TRNO (Treatment number)
+   - Column 1: HDAT (Harvest date, YYYYDDD format)
+   - Column 2: HWAM (Harvest weight, kg/ha)
+
+
+================================================================================
+DATA PROCESSING PIPELINE
+================================================================================
+
+Step 1: Parse Phenology and Nitrogen Levels
+   Function: parse_summary_phenology()
+   Input: Summary.OUT
+   Output: phenology_stages, n_levels
+   Processing: Extract dates and N levels, convert to DAS
+
+Step 2: Get Consensus Stages
+   Function: get_consensus_stages(phenology_stages)
+   Input: phenology_stages dictionary
+   Output: consensus_stages dictionary
+   Processing: Calculate mode (most common) DAS for each stage
+
+Step 3: Parse Plant Growth Data
+   Function: parse_plantgro_data(n_levels)
+   Input: PlantGro.OUT, n_levels
+   Output: treatments_data dictionary
+   Processing: Extract growth variables, calculate stress factors, normalize DAS
+
+Step 4: Parse Nitrogen Data
+   Function: parse_nitrogen_data(n_levels)
+   Input: PlantN.OUT, n_levels
+   Output: nitrogen_data dictionary
+   Processing: Extract nitrogen variables, normalize DAS
+
+Step 5: Parse Weather Data
+   Function: parse_weather_data()
+   Input: Weather.OUT
+   Output: weather_data DataFrame
+   Processing: Extract weather variables, calculate TMEAN, normalize DAS
+
+Step 6: Parse Observed Data
+   Function: parse_observed_data(n_levels)
+   Input: {FILE_PREFIX}.WHT or .WHA, n_levels
+   Output: observed_data dictionary
+   Processing: Extract field measurements, calculate means and std devs
+
+Step 7: Create Visualization
+   Function: create_comprehensive_visualization(...)
+   Input: All parsed data
+   Output: matplotlib Figure object
+   Processing: Generate 12 panels with consistent formatting
+
+
+================================================================================
+TREATMENT SELECTION AND NAMING
+================================================================================
+
+Selected Treatments: [1, 8, 15]
+- Treatment 1: Medium N application
+- Treatment 8: High N application
+- Treatment 15: Control (no fertilizer)
+
+Treatment Naming Convention:
+- Format: "Trt{number}:{FertilizerType}-{N_kg}N"
+- Examples:
+  * "Trt1:Harnstoff-180N"
+  * "Trt8:Kalkamm-180N"
+  * "Trt15:Control-0N"
+
+Fertilizer Type Mapping:
+- Treatment 1, 2: "Harnstoff" (Urea)
+- Treatment 3, 10, 12: "Mixed"
+- Treatment 4: "AmmonSulf" (Ammonium Sulfate Nitrate)
+- Treatment 5, 6, 7, 8: "Kalkamm" (Calcium Ammonium Nitrate)
+- Treatment 9, 11: "Kalkstick" (Calcium Cyanamide)
+- Treatment 13, 14: "UAN" (UAN Solution)
+- Treatment 15: "Control"
+
+Nitrogen Levels:
+- Extracted from Summary.OUT column 50 (NICM)
+- Units: kg N per hectare
+- Used in treatment naming and analysis
+
+
+================================================================================
+ERROR HANDLING AND EDGE CASES
+================================================================================
+
+1. Missing Files:
+   - Summary.OUT: Returns None, visualization fails
+   - PlantGro.OUT: Returns None, visualization fails
+   - PlantN.OUT: Returns None, nitrogen panels skipped
+   - Weather.OUT: Returns None, weather panel skipped
+   - Observed files: Returns None, observed points not shown
+
+2. Missing Data:
+   - Empty DataFrames: Treatment skipped with warning
+   - Missing columns: Variable skipped with warning
+   - Invalid values: Clipped or set to defaults
+
+3. DAS Normalization:
+   - If NORMALIZE_DAS=True but min_das not found: Uses original DAS
+   - If DAS column missing: Error logged, treatment skipped
+
+4. Date Conversion:
+   - Invalid dates (-99): Skipped in calculations
+   - Cross-year dates: Handled with 365-day offset
+
+5. Division by Zero:
+   - Grain protein: Check HWAD > 0 before division
+   - Stress calculations: Check denominators before division
+
+6. Observed Data:
+   - No replications: Mean = single value, std = 0
+   - Missing treatments: Observed points not shown for that treatment
+   - Missing variables: Only available variables plotted
+
+
+================================================================================
+OUTPUT FILE GENERATION
+================================================================================
+
+File Naming:
+- PNG: {OUTPUT_PREFIX}_comprehensive_analysis.png
+- PDF: {OUTPUT_PREFIX}_comprehensive_analysis.pdf
+- Examples:
+  * duernast_2015_comprehensive_analysis.png
+  * duernast_2017_comprehensive_analysis.pdf
+
+Save Parameters:
+- DPI: 300 (high resolution for publications)
+- Bbox: 'tight' (removes extra whitespace)
+- Facecolor: 'white' (ensures white background)
+- Format: PNG (raster) and PDF (vector)
+
+File Sizes (Typical):
+- PNG: ~2-2.5 MB (300 DPI, 18×36 inches)
+- PDF: ~70-80 KB (vector format, scalable)
+
+
+================================================================================
+ENVIRONMENT VARIABLES AND CONFIGURATION
+================================================================================
+
+The visualization script reads configuration from environment variables set by
+MASTER_WORKFLOW.py:
+
+1. DUERNAST_YEAR
+   - Type: Integer
+   - Example: 2015 or 2017
+   - Usage: Displayed in figure title
+
+2. DUERNAST_NORMALIZE_DAS
+   - Type: Boolean string ('True' or 'False')
+   - Example: 'True' for 2017, 'False' for 2015
+   - Usage: Controls DAS normalization for multi-year simulations
+
+3. DUERNAST_FILE_PREFIX
+   - Type: String
+   - Example: 'TUDU1501' or 'TUDU1701'
+   - Usage: Locates observed data files ({PREFIX}.WHT, {PREFIX}.WHA)
+
+4. DUERNAST_OUTPUT_PREFIX
+   - Type: String
+   - Example: 'duernast_2015' or 'duernast_2017'
+   - Usage: Output file naming ({PREFIX}_comprehensive_analysis.png)
+
+
+================================================================================
+SCIENTIFIC VALIDATION AND INTERPRETATION
+================================================================================
+
+1. Yield Validation (Panel 11)
+   - Compares simulated vs observed yields
+   - Error percentage: ((sim - obs) / obs) * 100
+   - Good model: Error < 15%
+   - Acceptable: Error < 25%
+
+2. Grain Weight Validation (Panel 7)
+   - Compares simulated vs observed grain weight
+   - Typical range: 35-45 mg/grain for wheat
+   - Model should capture treatment differences
+
+3. Grain Nitrogen Validation (Panel 9)
+   - Compares simulated vs observed grain N
+   - Higher N treatments should have higher grain N
+   - Control should have lowest grain N
+
+4. Grain Protein Validation (Panel 10)
+   - Compares simulated vs observed protein %
+   - Typical range: 8-15% for wheat
+   - Higher N treatments should have higher protein
+
+5. Stress Factor Interpretation
+   - Water stress: Should correlate with precipitation patterns
+   - Nitrogen stress: Should be lower in high N treatments
+   - Control treatment: Should show highest stress
+
+
+================================================================================
+CODE STRUCTURE AND FUNCTION ORGANIZATION
+================================================================================
+
+Main Functions:
+1. parse_summary_phenology() - Extract phenology and N levels
+2. get_consensus_stages() - Calculate consensus phenology
+3. parse_temperature_data() - Extract temperature from Weather.OUT
+4. parse_plantgro_data() - Extract growth data
+5. parse_nitrogen_data() - Extract nitrogen data
+6. parse_weather_data() - Extract weather data
+7. parse_observed_data() - Extract field measurements
+8. generate_treatment_names() - Create treatment labels
+9. get_treatment_styles() - Define visual styles
+10. create_comprehensive_visualization() - Main visualization function
+11. main() - Entry point and file I/O
+
+Data Flow:
+Input Files → Parsing Functions → Data Structures → Visualization Function → Figure → Save Files
+
+
+================================================================================
+END OF TECHNICAL DOCUMENTATION
+================================================================================
+
+This documentation provides complete technical details for understanding,
+reproducing, and modifying the visualization generation process. All data
+sources, calculations, methodologies, and visualization logic are documented
+to ensure full transparency and reproducibility.
+
+For questions or modifications, refer to:
+- Source code: GENERALIZED_PIPELINE/create_duernast_visualizations.py
+- Configuration: GENERALIZED_PIPELINE/config.py
+- Workflow: GENERALIZED_PIPELINE/MASTER_WORKFLOW.py
+
+

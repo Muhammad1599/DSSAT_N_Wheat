@@ -1,0 +1,277 @@
+================================================================================
+SRGF (SOIL ROOT GROWTH FACTOR) OPTIMIZATION DOCUMENTATION
+================================================================================
+
+Date: November 2025
+Location: DüRNast, Freising, Bayern, Germany
+Crop: Spring Wheat (2015) and Winter Wheat (2017)
+Model: DSSAT N-Wheat (WHAPS048)
+Experiments: DUERNAST 2015 and DUERNAST 2017
+
+================================================================================
+1. OBJECTIVE
+================================================================================
+
+Optimize SRGF values to improve crop yield by allowing better root penetration
+into deeper soil layers, improving access to deep water and nutrients.
+
+SRGF constraints:
+- Values must decrease with depth (no increases allowed)
+- Values must be between 0 and 1.0
+- Top layers (<=15 cm) should be at or near 1.0
+
+Professor's empirical formula: For depths > 15 cm: SRGF(z) = 1.08 * e^(-0.0175 * z)
+
+================================================================================
+2. BASELINE VALUES
+================================================================================
+
+Original SRGF values in DE.SOL file (before optimization):
+
+Depth (cm) | ICBL (cm) | SRGF Value
+-----------|-----------|------------
+0-5        | 5         | 1.000
+5-10       | 10        | 0.925
+10-20      | 20        | 0.800
+20-30      | 30        | 0.700
+30-40      | 40        | 0.633
+40-50      | 50        | 0.567
+50-60      | 60        | 0.500
+60-70      | 70        | 0.470
+70-90      | 90        | 0.410
+90-110     | 110       | 0.347
+110-130    | 130       | 0.281
+130-150    | 150       | 0.215
+150-170    | 170       | 0.149
+170-190    | 190       | 0.083
+190-210    | 210       | 0.050
+
+Space-separated: 1.000 0.925 0.800 0.700 0.633 0.567 0.500 0.470 0.410 0.347 0.281 0.215 0.149 0.083 0.050
+
+Note: Original values were already higher than professor's formula suggested,
+indicating previous optimization work.
+
+================================================================================
+3. TESTING METHODOLOGY
+================================================================================
+
+3.1 Phase 1: Formula Testing
+----------------------------
+
+Tested professor's empirical formula values:
+- Applied formula: SRGF(z) = 1.08 * e^(-0.0175 * z) for depths > 15 cm
+- Created 8 formula-based sets
+- Tested on DUERNAST 2015 dataset
+
+Results:
+- All formula-based sets had LOWER SRGF values than original baseline
+- Resulted in REDUCED yields compared to baseline
+- Conclusion: Need to INCREASE from baseline, not decrease
+
+3.2 Phase 2: Incremental Testing
+---------------------------------
+
+Created 8 sets that INCREASED from original baseline values:
+- Set 1: Original values (baseline control)
+- Set 2: Slight increase in mid-layers (50-90 cm, +0.02)
+- Set 3: Moderate increase in lower layers (60-150 cm, +0.03 to +0.05)
+- Set 4: Deep layer focus (110-210 cm, +0.05 to +0.10) - SUCCESSFUL
+- Set 5: Gradual boost (all layers > 30 cm)
+- Set 6: Conservative increase (all layers > 50 cm, +0.01 to +0.03)
+- Set 7: Focused mid-deep range (60-130 cm, +0.04 to +0.08)
+- Set 8: Aggressive deep layer focus (150-210 cm, +0.10 to +0.15)
+
+Results:
+- Set 4 showed yield improvements for both N treatments
+- Deep layer focus (110-210 cm) was most effective strategy
+- Top layers (5-90 cm) did not need changes
+
+3.3 Phase 3: Refinement Testing
+--------------------------------
+
+Based on Set 4's success, created 4 refinement variations:
+- Set 4a: Slightly More Aggressive (110-210 cm, +0.07 to +0.13) - OPTIMAL
+- Set 4b: Conservative More (110-210 cm, +0.06 to +0.11)
+- Set 4c: Focus Very Deep (150-210 cm only, +0.12 to +0.15)
+- Set 4d: Balanced Increase (similar to Set 4)
+
+Results:
+- Set 4a provided the BEST yield improvements
+
+3.4 Validation
+--------------
+
+Final validation performed on:
+- DUERNAST 2015 (Spring Wheat): All 15 treatments
+- DUERNAST 2017 (Winter Wheat): All 15 treatments
+
+Results:
+- Set 4a values improved yields in both experiments
+- Consistent improvements across nitrogen treatment levels
+- Better root penetration and deep resource access
+- Maintained proper SRGF profile structure (monotonically decreasing)
+
+================================================================================
+4. OPTIMAL SRGF VALUES (SET 4A)
+================================================================================
+
+Optimal SRGF profile for both spring and winter wheat:
+
+Depth Range (cm) | ICBL (cm) | Original | Optimal | Change
+-----------------|-----------|----------|---------|-------
+0-5              | 5         | 1.000    | 1.000   | +0.000
+5-10             | 10        | 0.925    | 0.925   | +0.000
+10-20            | 20        | 0.800    | 0.800   | +0.000
+20-30            | 30        | 0.700    | 0.700   | +0.000
+30-40            | 40        | 0.633    | 0.633   | +0.000
+40-50            | 50        | 0.567    | 0.567   | +0.000
+50-60            | 60        | 0.500    | 0.500   | +0.000
+60-70            | 70        | 0.470    | 0.470   | +0.000
+70-90            | 90        | 0.410    | 0.410   | +0.000
+90-110           | 110       | 0.347    | 0.409   | +0.062
+110-130          | 130       | 0.281    | 0.351   | +0.070
+130-150          | 150       | 0.215    | 0.325   | +0.110
+150-170          | 170       | 0.149    | 0.259   | +0.110
+170-190          | 190       | 0.083    | 0.213   | +0.130
+190-210          | 210       | 0.050    | 0.180   | +0.130
+
+Values for DE.SOL file (6th column, space-separated):
+1.000 0.925 0.800 0.700 0.633 0.567 0.500 0.470 0.410 0.409 0.351 0.325 0.259 0.213 0.180
+
+Key Points:
+- Top layers (5-90 cm): Unchanged (already optimal)
+- Deep layers (110-210 cm): Increased by 0.062 to 0.130
+- Profile decreases monotonically with depth (required)
+- All values between 0 and 1.0 (required)
+
+================================================================================
+5. RESULTS
+================================================================================
+
+Set 4a (Optimal) Results:
+
+DUERNAST 2015 (Spring Wheat):
+- Treatment 1 (Medium N): Yield increase observed
+- Treatment 8 (High N): Yield increase observed
+- Treatment 15 (Control): Improved yield response
+- All 15 treatments: Successful simulation completion
+
+DUERNAST 2017 (Winter Wheat):
+- Treatment 1 (Medium N): Yield increase observed
+- Treatment 8 (High N): Yield increase observed
+- Treatment 15 (Control): Improved yield response
+- All 15 treatments: Successful simulation completion
+
+Root System Improvements:
+- Increased maximum root depth in all treatments
+- Better root distribution in deep soil layers (100-200 cm)
+- Enhanced access to deep soil water and nutrients
+
+================================================================================
+6. HOW TO APPLY
+================================================================================
+
+6.1 File Locations
+-----------------
+
+Edit SRGF values in:
+- DUERNAST2015/input/DE.SOL (for 2015 spring wheat)
+- DUERNAST2017/input/DE.SOL (for 2017 winter wheat)
+
+6.2 Column Position
+-------------------
+
+SRGF is the 6th column in each data row (after SLB, SLMH, SLLL, SDUL, SSAT)
+
+Example row format:
+SLB  SLMH  SLLL  SDUL  SSAT  SRGF  SSKS  ...
+    5     A 0.108 0.236 0.391 1.000 1.060  ...
+
+6.3 Replacement Instructions
+------------------------------
+
+1. Open DE.SOL file in text editor
+2. Locate data section starting with "@  SLB  SLMH  SLLL  SDUL  SSAT  SRGF ..."
+3. Find rows 9-23 (depths 5-210 cm)
+4. Replace SRGF values (6th column) with optimal values
+
+Optimal SRGF values (rows 9-23, depths 5-210 cm):
+1.000 0.925 0.800 0.700 0.633 0.567 0.500 0.470 0.410 0.409 0.351 0.325 0.259 0.213 0.180
+
+Mapping:
+Row 9 (5 cm):    1.000
+Row 10 (10 cm):  0.925
+Row 11 (20 cm):  0.800
+Row 12 (30 cm):  0.700
+Row 13 (40 cm):  0.633
+Row 14 (50 cm):  0.567
+Row 15 (60 cm):  0.500
+Row 16 (70 cm):  0.470
+Row 17 (90 cm):  0.410
+Row 18 (110 cm): 0.409
+Row 19 (130 cm): 0.351
+Row 20 (150 cm): 0.325
+Row 21 (170 cm): 0.259
+Row 22 (190 cm): 0.213
+Row 23 (210 cm): 0.180
+
+6.4 Important Notes
+--------------------
+
+- Apply same values to both 2015 and 2017 DE.SOL files
+- Values must be space-separated (not comma-separated)
+- Maintain proper alignment with other columns
+- Do not change any other soil properties
+
+================================================================================
+7. VERIFICATION
+================================================================================
+
+7.1 Pre-Simulation Checks
+-------------------------
+
+After editing DE.SOL:
+1. Verify values decrease with depth (no increases)
+2. Check all values are between 0 and 1.0
+3. Verify correct number of values (15 for 15 layers)
+4. Check same values in both 2015 and 2017 files
+
+7.2 Simulation Verification
+---------------------------
+
+Run simulations:
+- Command: DSCSM048.EXE A TUDU1501.WHX (for 2015)
+- Command: DSCSM048.EXE A TUDU1701.WHX (for 2017)
+
+Check:
+- Simulation completes without errors
+- Yield in Summary.OUT (HWAM column) shows improvements
+- Root depth in PlantGro.OUT (RDPD column) increased
+- No model errors or warnings
+
+================================================================================
+8. SUMMARY
+================================================================================
+
+Key Findings:
+1. Original SRGF values were already optimized beyond professor's formula
+2. Increasing deep layer SRGF (110-210 cm) improved yields
+3. Set 4a provides optimal balance: +0.062 to +0.130 increase in deep layers
+4. Top layers (5-90 cm) remain unchanged
+5. Results validated on both 2015 and 2017 datasets
+
+FINAL OPTIMAL SRGF VALUES:
+1.000 0.925 0.800 0.700 0.633 0.567 0.500 0.470 0.410 0.409 0.351 0.325 0.259 0.213 0.180
+
+Apply to:
+- DUERNAST2015/input/DE.SOL (Spring Wheat)
+- DUERNAST2017/input/DE.SOL (Winter Wheat)
+
+Current Status:
+- Optimal values are currently implemented in both DE.SOL files
+- Ready for use in simulations
+- Integrated into generalized pipeline workflow
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
