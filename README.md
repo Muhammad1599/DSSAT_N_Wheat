@@ -94,7 +94,7 @@ The pipeline executes a complete 4-step workflow automatically:
 ### Step 3: Comprehensive Visualization Generation
 - Creates 12-panel scientific figure showing:
   - Weather data (temperature, precipitation, radiation)
-  - Growth dynamics (biomass, LAI, plant height)
+  - Growth dynamics (biomass, Root growth)
   - Nitrogen dynamics (plant N, grain N, N uptake)
   - Yield components (grain weight, harvest index)
 - Displays 3 representative treatments (Control, Medium N, High N)
@@ -117,7 +117,7 @@ Each experiment generates outputs in its `output/` directory:
 ### Comprehensive Visualization (12 Panels)
 - `duernast_2015_comprehensive_analysis.png` (or `duernast_2017_...`)
 - `duernast_2015_comprehensive_analysis.pdf`
-- Shows: Weather, biomass, LAI, plant height, nitrogen dynamics, grain weight, harvest index
+- Shows: Weather, biomass, Below ground growth, nitrogen dynamics, grain weight, grain number, grain protein, harvest index
 - Displays: 3 representative treatments (Control, Medium N, High N)
 
 ### Model Evaluation (8 Panels)
